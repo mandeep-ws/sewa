@@ -25,6 +25,9 @@ from modules.duplicate_detector import DuplicateDetector
 from modules.message_sender import MessageSender
 from modules.ui_components import UIComponents
 
+# Create instances of the classes
+duplicate_detector = DuplicateDetector()
+
 # Page configuration
 st.set_page_config(
     page_title="Book Request Automation",
@@ -77,8 +80,6 @@ def main():
         # Initialize session state
         if 'sms_data' not in st.session_state:
             st.session_state.sms_data = None
-        if 'book_data' not in st.session_state:
-            st.session_state.book_data = None
         if 'processed_data' not in st.session_state:
             st.session_state.processed_data = None
         if 'duplicates' not in st.session_state:
@@ -143,13 +144,9 @@ def upload_data_page(data_processor, ui_components):
                 # Process the uploaded file
                 with st.spinner("Processing uploaded file..."):
                     sms_data = data_processor.load_sms_data(uploaded_file)
-                    book_data = data_processor.load_book_data()
-                    
                     st.session_state.sms_data = sms_data
-                    st.session_state.book_data = book_data
                 
                 st.success(f"✅ Successfully loaded {len(sms_data)} records from SMS file")
-                st.success(f"✅ Successfully loaded {len(book_data)} records from Book database")
                 
                 # Show data preview
                 ui_components.show_data_preview(sms_data, "SMS Data Preview")
@@ -170,7 +167,6 @@ def upload_data_page(data_processor, ui_components):
         if st.session_state.sms_data is not None:
             st.markdown("### 📊 Current Status")
             st.metric("SMS Records", len(st.session_state.sms_data))
-            st.metric("Book Records", len(st.session_state.book_data))
             
             # Data quality indicators
             sms_data = st.session_state.sms_data
@@ -201,6 +197,12 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
     
     with col3:
         check_duplicates = st.button("🔄 Check Duplicates", type="primary")
+    
+    # Add a button to clear duplicate detection results
+    if st.button("🗑️ Clear Duplicate Results", help="Clear existing duplicate detection results to force a fresh run"):
+        st.session_state.duplicates = None
+        st.success("✅ Duplicate detection results cleared!")
+        st.rerun()
     
     # Phone validation
     if validate_phones:
@@ -258,7 +260,6 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         
         duplicates = duplicate_detector.find_duplicates(
             st.session_state.sms_data, 
-            st.session_state.book_data,
             progress_callback=update_progress
         )
         progress_bar.progress(1.0)
@@ -304,7 +305,33 @@ def send_messages_page(message_sender, ui_components):
         
         # Handle SMS sending directly
         if send_sms:
-            logger.info("🔘 SMS button clicked - sending messages directly")
+            logger.info("🔘 SMS button clicked - running duplicate detection first")
+            st.success("🚀 Starting duplicate detection...")
+            
+            # Always run duplicate detection to ensure we have current results
+            logger.info("📊 Running duplicate detection before sending SMS...")
+            
+            # Create progress indicators
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            def update_progress(current, total):
+                progress = min(current / total, 1.0)
+                progress_bar.progress(progress)
+                status_text.text(f"Checking {current}/{total} records for duplicates...")
+            
+            # Run duplicate detection
+            duplicates = duplicate_detector.find_duplicates(
+                st.session_state.sms_data, 
+                progress_callback=update_progress
+            )
+            progress_bar.progress(1.0)
+            status_text.text("✅ Duplicate detection completed!")
+            
+            # Store duplicates in session state
+            st.session_state.duplicates = duplicates
+            logger.info(f"📊 Duplicate detection completed: {len(duplicates) if duplicates is not None else 0} duplicates found")
+            
             st.success("🚀 Starting SMS sending...")
             try:
                 ui_components._send_sms_messages(
@@ -317,6 +344,31 @@ def send_messages_page(message_sender, ui_components):
                 logger.error(f"❌ Error sending SMS messages: {e}")
                 st.error(f"Error sending messages: {e}")
         else:
+            # For WhatsApp or Both options, also run duplicate detection first
+            logger.info("📊 Running duplicate detection before message confirmation...")
+            st.success("🚀 Starting duplicate detection...")
+            
+            # Create progress indicators
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            def update_progress(current, total):
+                progress = min(current / total, 1.0)
+                progress_bar.progress(progress)
+                status_text.text(f"Checking {current}/{total} records for duplicates...")
+            
+            # Run duplicate detection
+            duplicates = duplicate_detector.find_duplicates(
+                st.session_state.sms_data, 
+                progress_callback=update_progress
+            )
+            progress_bar.progress(1.0)
+            status_text.text("✅ Duplicate detection completed!")
+            
+            # Store duplicates in session state
+            st.session_state.duplicates = duplicates
+            logger.info(f"📊 Duplicate detection completed: {len(duplicates) if duplicates is not None else 0} duplicates found")
+            
             ui_components.show_message_confirmation(
                 st.session_state.sms_data,
                 st.session_state.duplicates,
@@ -331,7 +383,7 @@ def analytics_page(ui_components):
         st.warning("⚠️ Please upload data first to see analytics")
         return
     
-    ui_components.show_analytics(st.session_state.sms_data, st.session_state.book_data)
+    ui_components.show_analytics(st.session_state.sms_data)
 
 if __name__ == "__main__":
     main()

@@ -506,7 +506,7 @@ class UIComponents:
         
         logger.info("🔍 All confirmation buttons rendered successfully!")
     
-    def show_analytics(self, sms_data, book_data):
+    def show_analytics(self, sms_data):
         """Show comprehensive analytics and reports"""
         st.markdown("### 📊 Analytics Dashboard")
         
@@ -520,10 +520,10 @@ class UIComponents:
             self._show_geographic_analytics(sms_data)
         
         with tab3:
-            self._show_trend_analytics(sms_data, book_data)
+            self._show_trend_analytics(sms_data)
         
         with tab4:
-            self._show_summary_statistics(sms_data, book_data)
+            self._show_summary_statistics(sms_data)
         
         with tab5:
             self._show_data_quality_metrics(sms_data)
@@ -606,7 +606,7 @@ class UIComponents:
                     color_continuous_scale='Reds'
                 )
                 st.plotly_chart(fig, use_container_width=True)
-                
+        
                 # Show state statistics
                 st.markdown("**State Statistics**")
                 for state, count in state_counts.head(10).items():
@@ -883,7 +883,7 @@ class UIComponents:
             logger.error(f"❌ Error combining data: {e}")
             return sms_data
     
-    def _show_trend_analytics(self, sms_data, book_data):
+    def _show_trend_analytics(self, sms_data):
         """Show time-based trend analytics"""
         st.markdown("#### 📈 Trend Analytics")
         
@@ -937,24 +937,24 @@ class UIComponents:
                     fig.update_xaxes(tickangle=45)
                     st.plotly_chart(fig, use_container_width=True)
         
-        # Historical comparison (if book_data is available)
-        if book_data is not None and not book_data.empty and 'Date Received' in book_data.columns:
+        # Historical comparison using All_Sent_Records.xlsx
+        historical_data = self._load_historical_data()
+        if not historical_data.empty and 'Sent_Date' in historical_data.columns:
             st.markdown("**Historical vs Current Requests**")
             
             # Process historical data
-            book_data_copy = book_data.copy()
-            book_data_copy['Date Received'] = pd.to_datetime(book_data_copy['Date Received'], errors='coerce')
-            historical_valid = book_data_copy.dropna(subset=['Date Received'])
+            historical_data['Sent_Date'] = pd.to_datetime(historical_data['Sent_Date'], errors='coerce')
+            historical_valid = historical_data.dropna(subset=['Sent_Date'])
             
             if not historical_valid.empty:
                 # Get current year data
                 current_year = pd.Timestamp.now().year
-                historical_current_year = historical_valid[historical_valid['Date Received'].dt.year == current_year]
+                historical_current_year = historical_valid[historical_valid['Sent_Date'].dt.year == current_year]
                 sms_current_year = valid_dates[valid_dates['Date Received'].dt.year == current_year] if not valid_dates.empty else pd.DataFrame()
                 
                 # Monthly comparison
                 if not historical_current_year.empty:
-                    hist_monthly = historical_current_year.groupby(historical_current_year['Date Received'].dt.to_period('M')).size()
+                    hist_monthly = historical_current_year.groupby(historical_current_year['Sent_Date'].dt.to_period('M')).size()
                 else:
                     hist_monthly = pd.Series(dtype=int)
                 
@@ -983,7 +983,7 @@ class UIComponents:
                 )
                 st.plotly_chart(fig, use_container_width=True)
     
-    def _show_summary_statistics(self, sms_data, book_data):
+    def _show_summary_statistics(self, sms_data):
         """Show comprehensive summary statistics"""
         st.markdown("#### 📊 Summary Statistics")
         
@@ -1249,13 +1249,20 @@ class UIComponents:
                 continue
             
             # Generate message based on duplicate status
-            # Check if person is in Book.xlsx (historical customer)
+            # Check if person is a historical customer
             is_historical_customer = self._is_historical_customer(row['Name'], row['Phone'])
             
             if is_historical_customer:
+                logger.info(f"🔍 Historical customer detected: {row['Name']} - duplicates available: {duplicates is not None}")
+                if duplicates is not None:
+                    logger.info(f"🔍 Duplicates data: {len(duplicates)} records, empty: {duplicates.empty}")
+                else:
+                    logger.info(f"🔍 Duplicates is None - this is the problem!")
+                
                 # Use duplicate message template for historical customers
                 if duplicates is not None and not duplicates.empty:
                     duplicate_record = duplicates[duplicates['sms_index'] == idx]
+                    logger.info(f"🔍 Looking for duplicate record with sms_index {idx}, found: {len(duplicate_record)} records")
                     if not duplicate_record.empty:
                         message = message_sender.get_duplicate_message_template(duplicate_record.iloc[0])
                         logger.info(f"📝 Using duplicate message template for historical customer: {row['Name']}")
@@ -1277,6 +1284,7 @@ class UIComponents:
                         logger.info(f"📝 Using new customer template for historical customer (no duplicate record): {row['Name']} - Book: {book}, Language: {language}")
                 else:
                     # No duplicates data, use new customer template
+                    logger.info(f"❌ PROBLEM: No duplicates data available for historical customer: {row['Name']}")
                     book = row.get('Book', '')
                     language = row.get('Language', '')
                     if pd.isna(book) or book == '' or str(book).lower() == 'nan':
@@ -1539,13 +1547,20 @@ class UIComponents:
             return []
     
     def _was_message_already_sent(self, name, phone, book=None, previously_sent=None):
-        """Check if a message was already sent. Only checks All_Sent_Records.xlsx (contains merged data from Book.xlsx)"""
+        """Check if a message was already sent. Only checks All_Sent_Records.xlsx"""
         try:
             import pandas as pd
             
             current_name = str(name).strip().lower()
             current_phone = str(phone).strip()
             current_book = str(book).strip().upper() if book else ''
+            
+            # Normalize phone number by removing decimal points and converting to integer string
+            try:
+                # Handle phone numbers like "2065044242.0" -> "2065044242"
+                current_phone_normalized = str(int(float(current_phone)))
+            except (ValueError, TypeError):
+                current_phone_normalized = current_phone
             
             # Check All_Sent_Records.xlsx (contains all historical and recent data)
             sent_records_file = "All_Sent_Records.xlsx"
@@ -1557,13 +1572,25 @@ class UIComponents:
                         record_phone = str(record.get('Phone', '')).strip()
                         record_book = str(record.get('Book', '')).strip().upper()
                         
-                        # Check by phone + book (prevent same phone getting same book multiple times)
-                        if record_phone == current_phone and record_phone != '' and current_book == record_book and current_book != '':
-                            logger.info(f"🔍 All_Sent_Records: Found duplicate by phone+book: {record.get('Name')} - {record.get('Phone')} - Book: {record_book} - Sent: {record.get('Sent_Date')} - Type: {record.get('Message_Type', 'N/A')}")
+                        # Normalize historical phone number
+                        try:
+                            record_phone_normalized = str(int(float(record_phone)))
+                        except (ValueError, TypeError):
+                            record_phone_normalized = record_phone
+                        
+                        # Check by NAME + normalized phone + book (prevent same person getting same book multiple times)
+                        if (record_name == current_name and 
+                            record_phone_normalized == current_phone_normalized and 
+                            record_phone_normalized != '' and 
+                            current_book == record_book and 
+                            current_book != ''):
+                            logger.info(f"🔍 All_Sent_Records: Found duplicate by name+phone+book: {record.get('Name')} - {record.get('Phone')} - Book: {record_book} - Sent: {record.get('Sent_Date')} - Type: {record.get('Message_Type', 'N/A')}")
                             return True
                         
-                        # If different book, allow sending (not a duplicate)
-                        if record_phone == current_phone and current_book != record_book:
+                        # If same person but different book, allow sending (not a duplicate)
+                        if (record_name == current_name and 
+                            record_phone_normalized == current_phone_normalized and 
+                            current_book != record_book):
                             logger.info(f"🔍 All_Sent_Records: Found previous record with different book: {record.get('Name')} - {record.get('Phone')} - Previous Book: {record_book}, Current Book: {current_book} - ALLOWING")
                             continue
             
@@ -1576,7 +1603,7 @@ class UIComponents:
             return False
     
     def _is_historical_customer(self, name, phone):
-        """Check if person is a historical customer in All_Sent_Records.xlsx (contains merged data from Book.xlsx)"""
+        """Check if person is a historical customer in All_Sent_Records.xlsx"""
         try:
             import pandas as pd
             
@@ -1591,15 +1618,14 @@ class UIComponents:
             current_name = str(name).strip().lower()
             current_phone = str(phone).strip()
             
-            # Check if person exists in All_Sent_Records.xlsx with Message_Type = 'Historical'
+            # Check if person exists in All_Sent_Records.xlsx (all records are historical)
             for _, record in df.iterrows():
                 record_name = str(record.get('Name', '')).strip().lower()
                 record_phone = str(record.get('Phone', '')).strip()
                 record_type = str(record.get('Message_Type', '')).strip()
                 
-                # Match by name or phone, and must be historical record
-                if record_type == 'Historical' and \
-                   ((record_name == current_name and record_name != '') or \
+                # Match by name or phone (all records in All_Sent_Records.xlsx are historical)
+                if ((record_name == current_name and record_name != '') or \
                     (record_phone == current_phone and record_phone != '')):
                     logger.info(f"🔍 Found historical customer in All_Sent_Records: {record.get('Name')} - {record.get('Phone')} - Type: {record_type}")
                     return True

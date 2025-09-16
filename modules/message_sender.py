@@ -350,7 +350,7 @@ class MessageSender:
     
     def get_duplicate_message_template(self, duplicate_record):
         """Get the appropriate message template for duplicate customers"""
-        # This corresponds to Column Z in your Book.xlsx
+        # This corresponds to the duplicate message template
         phone_matches = duplicate_record.get('phone_matches', [])
         address_matches = duplicate_record.get('address_matches', [])
         
@@ -361,11 +361,15 @@ class MessageSender:
         
         # Sort by date if available
         most_recent_match = all_matches[0]
-        book_record = most_recent_match['book_data']
+        historical_record = most_recent_match.get('historical_data', {})
         
-        # Get book name and language
-        book_code = book_record.get('Book', '')
-        language = book_record.get('Language', '')
+        # Get book name and language from current SMS request
+        current_book_code = duplicate_record.get('sms_book', '')
+        current_language = duplicate_record.get('sms_language', '')
+        
+        # Get previous book from historical record
+        previous_book_code = historical_record.get('Book', '')
+        previous_language = historical_record.get('Language', '')
         
         # Map book code to full name
         book_names = {
@@ -379,12 +383,22 @@ class MessageSender:
             'HDM': 'Hindu Dharma Mahaan'
         }
         
-        book_name = book_names.get(book_code, book_code)
+        current_book_name = book_names.get(current_book_code, current_book_code)
+        previous_book_name = book_names.get(previous_book_code, previous_book_code)
         
-        # Generate message template
-        message = f"""Hello, you requested a free book called *{book_name}* in {language} from Sant Rampal Ji Maharaj.
+        # Check if it's the same book or different book
+        if current_book_code == previous_book_code:
+            # Same book - use original duplicate message
+            message = f"""Hello, you requested a free book called *{current_book_name}* in {current_language} from Sant Rampal Ji Maharaj.
 
 However our records indicate that we had already mailed you a free book in the past. Can you please confirm if you already received a book in the past?"""
+        else:
+            # Different book - ask if previous book was read and confirm new book
+            message = f"""Hello, you requested a free book called *{current_book_name}* in {current_language} from Sant Rampal Ji Maharaj.
+
+Our records show that we previously sent you a free book called *{previous_book_name}* in {previous_language}. 
+
+Have you read the *{previous_book_name}*? Please confirm if you would like us to send the new book *{current_book_name}*."""
         
         return message
     

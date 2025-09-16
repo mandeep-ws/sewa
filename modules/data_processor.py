@@ -9,7 +9,7 @@ import re
 
 class DataProcessor:
     def __init__(self):
-        self.book_data_path = Path("Book.xlsx")
+        pass
     
     def load_sms_data(self, uploaded_file):
         """Load and clean SMS data from uploaded file"""
@@ -62,32 +62,8 @@ class DataProcessor:
             raise
     
     def load_book_data(self):
-        """Load existing Book.xlsx data"""
-        try:
-            if self.book_data_path.exists():
-                df = pd.read_excel(self.book_data_path)
-                
-                # Clean phone numbers in book data
-                if 'Phone' in df.columns:
-                    # Handle float phone numbers (like 2065044242.0) by converting to int first
-                    df['Phone'] = df['Phone'].apply(lambda x: str(int(x)) if pd.notna(x) and str(x) != 'nan' and str(x).replace('.0', '').isdigit() else '')
-                    # Remove any remaining non-digits
-                    df['Phone'] = df['Phone'].str.replace(r'[^\d]', '', regex=True)
-                    df['Phone'] = df['Phone'].str.replace('nan', '')
-                
-                # Clean addresses in book data
-                if 'Address' in df.columns:
-                    df['Address'] = df['Address'].astype(str).str.strip()
-                    df['Address'] = df['Address'].str.replace('nan', '')
-                
-                return df
-            else:
-                st.warning("Book.xlsx not found. Creating empty dataframe.")
-                return pd.DataFrame()
-                
-        except Exception as e:
-            st.error(f"Error loading Book data: {str(e)}")
-            return pd.DataFrame()
+        """Load book data - now returns empty dataframe since we use All_Sent_Records.xlsx"""
+        return pd.DataFrame()
     
     def standardize_address(self, address):
         """Standardize address format"""
