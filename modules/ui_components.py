@@ -332,15 +332,15 @@ class UIComponents:
                     if row['phone_matches']:
                         st.write("**Phone Matches:**")
                         for match in row['phone_matches'][:3]:  # Show first 3 matches
-                            book_data = match['book_data']
-                            st.write(f"- {book_data.get('Name', 'Unknown')} - {book_data.get('Book', '')} ({book_data.get('Language', '')}) - {book_data.get('Date Received', '')}")
+                            historical_data = match['historical_data']
+                            st.write(f"- {historical_data.get('Name', 'Unknown')} - {historical_data.get('Book', '')} ({historical_data.get('Language', '')}) - {historical_data.get('Sent_Date', '')}")
                     
                     # Show address matches
                     if row['address_matches']:
                         st.write("**Address Matches:**")
                         for match in row['address_matches'][:3]:  # Show first 3 matches
-                            book_data = match['book_data']
-                            st.write(f"- {book_data.get('Name', 'Unknown')} - {book_data.get('Book', '')} ({book_data.get('Language', '')}) - {book_data.get('Date Received', '')}")
+                            historical_data = match['historical_data']
+                            st.write(f"- {historical_data.get('Name', 'Unknown')} - {historical_data.get('Book', '')} ({historical_data.get('Language', '')}) - {historical_data.get('Sent_Date', '')}")
                 
                 st.markdown("---")
     
@@ -507,64 +507,589 @@ class UIComponents:
         logger.info("🔍 All confirmation buttons rendered successfully!")
     
     def show_analytics(self, sms_data, book_data):
-        """Show analytics and reports"""
+        """Show comprehensive analytics and reports"""
         st.markdown("### 📊 Analytics Dashboard")
         
-        # Book distribution
-        if 'Book' in sms_data.columns:
-            book_counts = sms_data['Book'].value_counts()
-            st.markdown("#### 📚 Book Requests Distribution")
-            fig = px.bar(
-                x=book_counts.index,
-                y=book_counts.values,
-                title="Book Requests by Type"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        # Create tabs for different analytics sections
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📚 Books & Languages", "🗺️ Geographic", "📈 Trends & Time", "📊 Summary Stats", "🔍 Data Quality"])
         
-        # Language distribution
-        if 'Language' in sms_data.columns:
-            language_counts = sms_data['Language'].value_counts()
-            st.markdown("#### 🌍 Language Distribution")
-            fig = px.pie(
-                values=language_counts.values,
-                names=language_counts.index,
-                title="Requests by Language"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        with tab1:
+            self._show_book_language_analytics(sms_data)
         
-        # Geographic distribution
-        if 'Address' in sms_data.columns:
-            # Extract states from addresses
-            states = []
-            for address in sms_data['Address'].dropna():
-                address_upper = str(address).upper()
-                if 'CA' in address_upper or 'CALIFORNIA' in address_upper:
-                    states.append('CA')
-                elif 'TX' in address_upper or 'TEXAS' in address_upper:
-                    states.append('TX')
-                elif 'IN' in address_upper or 'INDIANA' in address_upper:
-                    states.append('IN')
-                else:
-                    states.append('Other')
-            
-            if states:
-                state_counts = pd.Series(states).value_counts()
-                st.markdown("#### 🗺️ Geographic Distribution")
+        with tab2:
+            self._show_geographic_analytics(sms_data)
+        
+        with tab3:
+            self._show_trend_analytics(sms_data, book_data)
+        
+        with tab4:
+            self._show_summary_statistics(sms_data, book_data)
+        
+        with tab5:
+            self._show_data_quality_metrics(sms_data)
+    
+    def _show_book_language_analytics(self, sms_data):
+        """Show book and language distribution analytics"""
+        st.markdown("#### 📚 Book & Language Analytics")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Book distribution
+            if 'Book' in sms_data.columns:
+                book_counts = sms_data['Book'].value_counts()
+                st.markdown("**Book Requests Distribution**")
                 fig = px.bar(
-                    x=state_counts.index,
-                    y=state_counts.values,
-                    title="Requests by State/Center"
+                    x=book_counts.index,
+                    y=book_counts.values,
+                    title="Book Requests by Type",
+                    color=book_counts.values,
+                    color_continuous_scale='Blues'
+                )
+                fig.update_layout(showlegend=False)
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Language distribution
+            if 'Language' in sms_data.columns:
+                language_counts = sms_data['Language'].value_counts()
+                st.markdown("**Language Distribution**")
+                fig = px.pie(
+                    values=language_counts.values,
+                    names=language_counts.index,
+                    title="Requests by Language"
                 )
                 st.plotly_chart(fig, use_container_width=True)
         
-        # Data quality metrics
+        # Book-Language combination analysis
+        if 'Book' in sms_data.columns and 'Language' in sms_data.columns:
+            st.markdown("**Book-Language Combination Analysis**")
+            book_lang_combo = sms_data.groupby(['Book', 'Language']).size().reset_index(name='Count')
+            book_lang_combo['Combination'] = book_lang_combo['Book'] + ' - ' + book_lang_combo['Language']
+            
+            fig = px.bar(
+                book_lang_combo,
+                x='Combination',
+                y='Count',
+                title="Most Popular Book-Language Combinations",
+                color='Count',
+                color_continuous_scale='Viridis'
+            )
+            fig.update_xaxes(tickangle=45)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    def _show_geographic_analytics(self, sms_data):
+        """Show geographic distribution analytics"""
+        st.markdown("#### 🗺️ Geographic Analytics")
+        
+        # Load historical data from All_Sent_Records.xlsx
+        historical_data = self._load_historical_data()
+        
+        # Combine current SMS data with historical data
+        combined_data = self._combine_current_and_historical_data(sms_data, historical_data)
+        
+        # Extract geographic information from combined addresses
+        geographic_data = self._extract_geographic_data(combined_data)
+        
+        if not geographic_data.empty:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # State distribution
+                state_counts = geographic_data['State'].value_counts()
+                st.markdown("**Requests by State**")
+                fig = px.bar(
+                    x=state_counts.index,
+                    y=state_counts.values,
+                    title="Book Requests by State",
+                    color=state_counts.values,
+                    color_continuous_scale='Reds'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Show state statistics
+                st.markdown("**State Statistics**")
+                for state, count in state_counts.head(10).items():
+                    percentage = (count / len(geographic_data)) * 100
+                    st.metric(f"{state}", f"{count} requests", f"{percentage:.1f}%")
+            
+            with col2:
+                # City distribution (top 15)
+                city_counts = geographic_data['City'].value_counts().head(15)
+                st.markdown("**Top 15 Cities by Requests**")
+                fig = px.bar(
+                    x=city_counts.values,
+                    y=city_counts.index,
+                    orientation='h',
+                    title="Top Cities by Book Requests",
+                    color=city_counts.values,
+                    color_continuous_scale='Greens'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Data source breakdown
+            if 'Data_Source' in combined_data.columns:
+                st.markdown("**Data Source Breakdown**")
+                source_counts = combined_data['Data_Source'].value_counts()
+                fig = px.pie(
+                    values=source_counts.values,
+                    names=source_counts.index,
+                    title="Current vs Historical Data Distribution"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # State-Book analysis
+            if 'Book' in combined_data.columns:
+                st.markdown("**Book Distribution by State**")
+                state_book_data = geographic_data.merge(combined_data[['Book']], left_index=True, right_index=True)
+                state_book_counts = state_book_data.groupby(['State', 'Book']).size().reset_index(name='Count')
+                
+                # Create a pivot table for better visualization
+                pivot_data = state_book_counts.pivot(index='State', columns='Book', values='Count').fillna(0)
+                
+                fig = px.imshow(
+                    pivot_data.values,
+                    x=pivot_data.columns,
+                    y=pivot_data.index,
+                    title="Book Requests Heatmap by State (All Data)",
+                    color_continuous_scale='Blues',
+                    aspect='auto'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # City-Book analysis for top cities
+            if 'Book' in combined_data.columns:
+                st.markdown("**Book Distribution by Top Cities**")
+                top_cities = geographic_data['City'].value_counts().head(10).index
+                city_book_data = geographic_data[geographic_data['City'].isin(top_cities)].merge(
+                    combined_data[['Book']], left_index=True, right_index=True
+                )
+                city_book_counts = city_book_data.groupby(['City', 'Book']).size().reset_index(name='Count')
+                
+                fig = px.bar(
+                    city_book_counts,
+                    x='City',
+                    y='Count',
+                    color='Book',
+                    title="Book Distribution in Top Cities (All Data)",
+                    barmode='stack'
+                )
+                fig.update_xaxes(tickangle=45)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Historical vs Current comparison by state
+            if 'Data_Source' in combined_data.columns and 'Book' in combined_data.columns:
+                st.markdown("**Historical vs Current Requests by State**")
+                state_source_data = geographic_data.merge(combined_data[['Data_Source']], left_index=True, right_index=True)
+                state_source_counts = state_source_data.groupby(['State', 'Data_Source']).size().reset_index(name='Count')
+                
+                # Get top 10 states for comparison
+                top_states = geographic_data['State'].value_counts().head(10).index
+                state_source_filtered = state_source_counts[state_source_counts['State'].isin(top_states)]
+                
+                fig = px.bar(
+                    state_source_filtered,
+                    x='State',
+                    y='Count',
+                    color='Data_Source',
+                    title="Historical vs Current Requests by Top States",
+                    barmode='group'
+                )
+                fig.update_xaxes(tickangle=45)
+                st.plotly_chart(fig, use_container_width=True)
+    
+    def _extract_geographic_data(self, sms_data):
+        """Extract state and city information from addresses"""
+        geographic_info = []
+        
+        for idx, address in sms_data['Address'].dropna().items():
+            address_str = str(address).upper()
+            state = 'Unknown'
+            city = 'Unknown'
+            
+            # Extract state
+            if 'CA' in address_str or 'CALIFORNIA' in address_str:
+                state = 'CA'
+            elif 'TX' in address_str or 'TEXAS' in address_str:
+                state = 'TX'
+            elif 'NY' in address_str or 'NEW YORK' in address_str:
+                state = 'NY'
+            elif 'FL' in address_str or 'FLORIDA' in address_str:
+                state = 'FL'
+            elif 'WA' in address_str or 'WASHINGTON' in address_str:
+                state = 'WA'
+            elif 'IL' in address_str or 'ILLINOIS' in address_str:
+                state = 'IL'
+            elif 'NJ' in address_str or 'NEW JERSEY' in address_str:
+                state = 'NJ'
+            elif 'PA' in address_str or 'PENNSYLVANIA' in address_str:
+                state = 'PA'
+            elif 'GA' in address_str or 'GEORGIA' in address_str:
+                state = 'GA'
+            elif 'NC' in address_str or 'NORTH CAROLINA' in address_str:
+                state = 'NC'
+            elif 'VA' in address_str or 'VIRGINIA' in address_str:
+                state = 'VA'
+            elif 'OH' in address_str or 'OHIO' in address_str:
+                state = 'OH'
+            elif 'MI' in address_str or 'MICHIGAN' in address_str:
+                state = 'MI'
+            elif 'AZ' in address_str or 'ARIZONA' in address_str:
+                state = 'AZ'
+            elif 'TN' in address_str or 'TENNESSEE' in address_str:
+                state = 'TN'
+            elif 'IN' in address_str or 'INDIANA' in address_str:
+                state = 'IN'
+            elif 'MA' in address_str or 'MASSACHUSETTS' in address_str:
+                state = 'MA'
+            elif 'MD' in address_str or 'MARYLAND' in address_str:
+                state = 'MD'
+            elif 'CO' in address_str or 'COLORADO' in address_str:
+                state = 'CO'
+            elif 'OR' in address_str or 'OREGON' in address_str:
+                state = 'OR'
+            elif 'UT' in address_str or 'UTAH' in address_str:
+                state = 'UT'
+            elif 'NV' in address_str or 'NEVADA' in address_str:
+                state = 'NV'
+            elif 'CT' in address_str or 'CONNECTICUT' in address_str:
+                state = 'CT'
+            elif 'WI' in address_str or 'WISCONSIN' in address_str:
+                state = 'WI'
+            elif 'MN' in address_str or 'MINNESOTA' in address_str:
+                state = 'MN'
+            elif 'MO' in address_str or 'MISSOURI' in address_str:
+                state = 'MO'
+            elif 'LA' in address_str or 'LOUISIANA' in address_str:
+                state = 'LA'
+            elif 'AL' in address_str or 'ALABAMA' in address_str:
+                state = 'AL'
+            elif 'SC' in address_str or 'SOUTH CAROLINA' in address_str:
+                state = 'SC'
+            elif 'KY' in address_str or 'KENTUCKY' in address_str:
+                state = 'KY'
+            elif 'OK' in address_str or 'OKLAHOMA' in address_str:
+                state = 'OK'
+            elif 'IA' in address_str or 'IOWA' in address_str:
+                state = 'IA'
+            elif 'AR' in address_str or 'ARKANSAS' in address_str:
+                state = 'AR'
+            elif 'KS' in address_str or 'KANSAS' in address_str:
+                state = 'KS'
+            elif 'NM' in address_str or 'NEW MEXICO' in address_str:
+                state = 'NM'
+            elif 'NE' in address_str or 'NEBRASKA' in address_str:
+                state = 'NE'
+            elif 'WV' in address_str or 'WEST VIRGINIA' in address_str:
+                state = 'WV'
+            elif 'ID' in address_str or 'IDAHO' in address_str:
+                state = 'ID'
+            elif 'HI' in address_str or 'HAWAII' in address_str:
+                state = 'HI'
+            elif 'NH' in address_str or 'NEW HAMPSHIRE' in address_str:
+                state = 'NH'
+            elif 'ME' in address_str or 'MAINE' in address_str:
+                state = 'ME'
+            elif 'RI' in address_str or 'RHODE ISLAND' in address_str:
+                state = 'RI'
+            elif 'MT' in address_str or 'MONTANA' in address_str:
+                state = 'MT'
+            elif 'DE' in address_str or 'DELAWARE' in address_str:
+                state = 'DE'
+            elif 'SD' in address_str or 'SOUTH DAKOTA' in address_str:
+                state = 'SD'
+            elif 'ND' in address_str or 'NORTH DAKOTA' in address_str:
+                state = 'ND'
+            elif 'AK' in address_str or 'ALASKA' in address_str:
+                state = 'AK'
+            elif 'VT' in address_str or 'VERMONT' in address_str:
+                state = 'VT'
+            elif 'WY' in address_str or 'WYOMING' in address_str:
+                state = 'WY'
+            else:
+                state = 'Other'
+            
+            # Extract city (simplified - look for common city patterns)
+            address_parts = address_str.split()
+            for i, part in enumerate(address_parts):
+                # Look for city names (usually before state)
+                if part in ['ST', 'STREET', 'AVE', 'AVENUE', 'RD', 'ROAD', 'BLVD', 'BOULEVARD', 'DR', 'DRIVE', 'CT', 'COURT', 'LN', 'LANE', 'PL', 'PLACE', 'WAY', 'CIR', 'CIRCLE']:
+                    if i > 0:
+                        city = address_parts[i-1].title()
+                        break
+                # Look for common city indicators
+                elif part in ['CITY', 'TOWN', 'VILLAGE']:
+                    if i > 0:
+                        city = address_parts[i-1].title()
+                        break
+            
+            # If no city found, try to extract from common patterns
+            if city == 'Unknown':
+                # Look for patterns like "City, State" or "City State"
+                for i, part in enumerate(address_parts):
+                    if part == state or part in ['CA', 'TX', 'NY', 'FL', 'WA', 'IL', 'NJ', 'PA', 'GA', 'NC', 'VA', 'OH', 'MI', 'AZ', 'TN', 'IN', 'MA', 'MD', 'CO', 'OR', 'UT', 'NV', 'CT', 'WI', 'MN', 'MO', 'LA', 'AL', 'SC', 'KY', 'OK', 'IA', 'AR', 'KS', 'NM', 'NE', 'WV', 'ID', 'HI', 'NH', 'ME', 'RI', 'MT', 'DE', 'SD', 'ND', 'AK', 'VT', 'WY']:
+                        if i > 0:
+                            city = address_parts[i-1].title()
+                            break
+            
+            geographic_info.append({
+                'State': state,
+                'City': city
+            })
+        
+        return pd.DataFrame(geographic_info, index=sms_data['Address'].dropna().index)
+    
+    def _load_historical_data(self):
+        """Load historical data from All_Sent_Records.xlsx"""
+        try:
+            import os
+            historical_file = "All_Sent_Records.xlsx"
+            if os.path.exists(historical_file):
+                df = pd.read_excel(historical_file)
+                logger.info(f"📊 Loaded {len(df)} historical records from {historical_file}")
+                return df
+            else:
+                logger.info("📊 No historical records file found")
+                return pd.DataFrame()
+        except Exception as e:
+            logger.error(f"❌ Error loading historical data: {e}")
+            return pd.DataFrame()
+    
+    def _combine_current_and_historical_data(self, sms_data, historical_data):
+        """Combine current SMS data with historical data for comprehensive analytics"""
+        try:
+            # Prepare current SMS data
+            current_data = sms_data.copy()
+            current_data['Data_Source'] = 'Current'
+            
+            # Prepare historical data
+            if not historical_data.empty:
+                # Select relevant columns from historical data
+                historical_columns = ['Name', 'Phone', 'Address', 'Book', 'Language', 'Email', 'City', 'State', 'Zip_Code', 'Country']
+                available_columns = [col for col in historical_columns if col in historical_data.columns]
+                historical_subset = historical_data[available_columns].copy()
+                historical_subset['Data_Source'] = 'Historical'
+                
+                # Combine the datasets
+                combined_data = pd.concat([current_data, historical_subset], ignore_index=True)
+                logger.info(f"📊 Combined data: {len(current_data)} current + {len(historical_subset)} historical = {len(combined_data)} total records")
+            else:
+                combined_data = current_data
+                logger.info(f"📊 Using only current data: {len(combined_data)} records")
+            
+            return combined_data
+            
+        except Exception as e:
+            logger.error(f"❌ Error combining data: {e}")
+            return sms_data
+    
+    def _show_trend_analytics(self, sms_data, book_data):
+        """Show time-based trend analytics"""
+        st.markdown("#### 📈 Trend Analytics")
+        
+        # Date-based analysis
+        if 'Date Received' in sms_data.columns:
+            # Convert date column to datetime
+            sms_data_copy = sms_data.copy()
+            sms_data_copy['Date Received'] = pd.to_datetime(sms_data_copy['Date Received'], errors='coerce')
+            
+            # Filter out invalid dates
+            valid_dates = sms_data_copy.dropna(subset=['Date Received'])
+            
+            if not valid_dates.empty:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Daily trend
+                    daily_counts = valid_dates.groupby(valid_dates['Date Received'].dt.date).size()
+                    st.markdown("**Daily Request Trends**")
+                    fig = px.line(
+                        x=daily_counts.index,
+                        y=daily_counts.values,
+                        title="Book Requests Over Time (Daily)"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with col2:
+                    # Monthly trend
+                    monthly_counts = valid_dates.groupby(valid_dates['Date Received'].dt.to_period('M')).size()
+                    st.markdown("**Monthly Request Trends**")
+                    fig = px.bar(
+                        x=[str(period) for period in monthly_counts.index],
+                        y=monthly_counts.values,
+                        title="Book Requests by Month"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Book trends over time
+                if 'Book' in sms_data.columns:
+                    st.markdown("**Book Request Trends Over Time**")
+                    book_trends = valid_dates.groupby([valid_dates['Date Received'].dt.to_period('M'), 'Book']).size().reset_index(name='Count')
+                    book_trends['Period'] = book_trends['Date Received'].astype(str)
+                    
+                    fig = px.line(
+                        book_trends,
+                        x='Period',
+                        y='Count',
+                        color='Book',
+                        title="Book Request Trends by Month"
+                    )
+                    fig.update_xaxes(tickangle=45)
+                    st.plotly_chart(fig, use_container_width=True)
+        
+        # Historical comparison (if book_data is available)
+        if book_data is not None and not book_data.empty and 'Date Received' in book_data.columns:
+            st.markdown("**Historical vs Current Requests**")
+            
+            # Process historical data
+            book_data_copy = book_data.copy()
+            book_data_copy['Date Received'] = pd.to_datetime(book_data_copy['Date Received'], errors='coerce')
+            historical_valid = book_data_copy.dropna(subset=['Date Received'])
+            
+            if not historical_valid.empty:
+                # Get current year data
+                current_year = pd.Timestamp.now().year
+                historical_current_year = historical_valid[historical_valid['Date Received'].dt.year == current_year]
+                sms_current_year = valid_dates[valid_dates['Date Received'].dt.year == current_year] if not valid_dates.empty else pd.DataFrame()
+                
+                # Monthly comparison
+                if not historical_current_year.empty:
+                    hist_monthly = historical_current_year.groupby(historical_current_year['Date Received'].dt.to_period('M')).size()
+                else:
+                    hist_monthly = pd.Series(dtype=int)
+                
+                if not sms_current_year.empty:
+                    sms_monthly = sms_current_year.groupby(sms_current_year['Date Received'].dt.to_period('M')).size()
+                else:
+                    sms_monthly = pd.Series(dtype=int)
+                
+                # Create comparison chart
+                months = sorted(set(list(hist_monthly.index) + list(sms_monthly.index)))
+                hist_data = [hist_monthly.get(month, 0) for month in months]
+                sms_data = [sms_monthly.get(month, 0) for month in months]
+                
+                comparison_df = pd.DataFrame({
+                    'Month': [str(month) for month in months],
+                    'Historical': hist_data,
+                    'Current': sms_data
+                })
+                
+                fig = px.bar(
+                    comparison_df,
+                    x='Month',
+                    y=['Historical', 'Current'],
+                    title=f"Historical vs Current Requests ({current_year})",
+                    barmode='group'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    
+    def _show_summary_statistics(self, sms_data, book_data):
+        """Show comprehensive summary statistics"""
+        st.markdown("#### 📊 Summary Statistics")
+        
+        # Load historical data and combine with current data
+        historical_data = self._load_historical_data()
+        combined_data = self._combine_current_and_historical_data(sms_data, historical_data)
+        
+        # Key Performance Indicators
+        st.markdown("**Key Performance Indicators (All Data)**")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_requests = len(combined_data)
+            current_requests = len(sms_data)
+            historical_requests = len(historical_data) if not historical_data.empty else 0
+            st.metric("Total Requests", total_requests, f"Current: {current_requests}, Historical: {historical_requests}")
+        
+        with col2:
+            unique_books = combined_data['Book'].nunique() if 'Book' in combined_data.columns else 0
+            st.metric("Unique Books", unique_books)
+        
+        with col3:
+            unique_languages = combined_data['Language'].nunique() if 'Language' in combined_data.columns else 0
+            st.metric("Languages", unique_languages)
+        
+        with col4:
+            # Calculate geographic diversity from combined data
+            geographic_data = self._extract_geographic_data(combined_data)
+            unique_states = geographic_data['State'].nunique() if not geographic_data.empty else 0
+            st.metric("States Covered", unique_states)
+        
+        # Top performers
+        st.markdown("**Top Performers (All Data)**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if 'Book' in combined_data.columns:
+                top_book = combined_data['Book'].value_counts().index[0]
+                top_book_count = combined_data['Book'].value_counts().iloc[0]
+                st.metric("Most Requested Book", f"{top_book}", f"{top_book_count} requests")
+            
+            if 'Language' in combined_data.columns:
+                top_language = combined_data['Language'].value_counts().index[0]
+                top_language_count = combined_data['Language'].value_counts().iloc[0]
+                st.metric("Most Requested Language", f"{top_language}", f"{top_language_count} requests")
+        
+        with col2:
+            if not geographic_data.empty:
+                top_state = geographic_data['State'].value_counts().index[0]
+                top_state_count = geographic_data['State'].value_counts().iloc[0]
+                st.metric("Top State", f"{top_state}", f"{top_state_count} requests")
+                
+                top_city = geographic_data['City'].value_counts().index[0]
+                top_city_count = geographic_data['City'].value_counts().iloc[0]
+                st.metric("Top City", f"{top_city}", f"{top_city_count} requests")
+        
+        # Distribution insights
+        st.markdown("**Distribution Insights (All Data)**")
+        
+        if 'Book' in combined_data.columns:
+            book_distribution = combined_data['Book'].value_counts()
+            most_popular_share = (book_distribution.iloc[0] / len(combined_data)) * 100
+            st.info(f"📚 The most popular book ({book_distribution.index[0]}) represents {most_popular_share:.1f}% of all requests")
+        
+        if 'Language' in combined_data.columns:
+            language_distribution = combined_data['Language'].value_counts()
+            english_share = (language_distribution.get('English', 0) / len(combined_data)) * 100
+            st.info(f"🌍 English requests represent {english_share:.1f}% of all requests")
+        
+        if not geographic_data.empty:
+            state_distribution = geographic_data['State'].value_counts()
+            top_state_share = (state_distribution.iloc[0] / len(geographic_data)) * 100
+            st.info(f"🗺️ The top state ({state_distribution.index[0]}) represents {top_state_share:.1f}% of all requests")
+        
+        # Historical vs Current breakdown
+        if 'Data_Source' in combined_data.columns:
+            st.markdown("**Historical vs Current Breakdown**")
+            
+            current_count = len(combined_data[combined_data['Data_Source'] == 'Current'])
+            historical_count = len(combined_data[combined_data['Data_Source'] == 'Historical'])
+            total_count = len(combined_data)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                current_percentage = (current_count / total_count) * 100
+                st.metric("Current Requests", current_count, f"{current_percentage:.1f}%")
+            
+            with col2:
+                historical_percentage = (historical_count / total_count) * 100
+                st.metric("Historical Requests", historical_count, f"{historical_percentage:.1f}%")
+            
+            with col3:
+                st.metric("Total Records", total_count)
+    
+    def _show_data_quality_metrics(self, sms_data):
+        """Show data quality metrics"""
         st.markdown("#### 📈 Data Quality Metrics")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             completeness = (1 - sms_data.isnull().sum().sum() / (len(sms_data) * len(sms_data.columns))) * 100
-            st.metric("Data Completeness", f"{completeness:.1f}%")
+            st.metric("Overall Completeness", f"{completeness:.1f}%")
         
         with col2:
             if 'Book' in sms_data.columns:
@@ -580,6 +1105,43 @@ class UIComponents:
             if 'Phone' in sms_data.columns:
                 phone_completeness = (1 - sms_data['Phone'].isnull().sum() / len(sms_data)) * 100
                 st.metric("Phone Completeness", f"{phone_completeness:.1f}%")
+        
+        # Detailed quality analysis
+        st.markdown("**Detailed Quality Analysis**")
+        
+        quality_metrics = []
+        for column in sms_data.columns:
+            if column in ['Name', 'Phone', 'Address', 'Book', 'Language', 'Email']:
+                null_count = sms_data[column].isnull().sum()
+                null_percentage = (null_count / len(sms_data)) * 100
+                quality_metrics.append({
+                    'Field': column,
+                    'Missing Count': null_count,
+                    'Missing %': f"{null_percentage:.1f}%",
+                    'Quality Score': f"{100 - null_percentage:.1f}%"
+                })
+        
+        if quality_metrics:
+            quality_df = pd.DataFrame(quality_metrics)
+            st.dataframe(quality_df, use_container_width=True)
+        
+        # Data validation insights
+        st.markdown("**Data Validation Insights**")
+        
+        if 'Phone' in sms_data.columns:
+            # Check for valid phone number patterns
+            phone_pattern = r'^\d{10}$'
+            valid_phones = sms_data['Phone'].astype(str).str.match(phone_pattern).sum()
+            phone_validity = (valid_phones / len(sms_data)) * 100
+            st.info(f"📱 {phone_validity:.1f}% of phone numbers follow the 10-digit format")
+        
+        if 'Address' in sms_data.columns:
+            # Check for complete addresses
+            complete_addresses = sms_data['Address'].dropna().apply(
+                lambda x: len(str(x).split()) >= 3
+            ).sum()
+            address_completeness = (complete_addresses / len(sms_data)) * 100
+            st.info(f"🏠 {address_completeness:.1f}% of addresses appear to be complete (3+ words)")
     
     def _send_whatsapp_messages(self, sms_data, duplicates, message_sender):
         """Send WhatsApp messages to all recipients"""

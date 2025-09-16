@@ -12,9 +12,12 @@ class DuplicateDetector:
         self.similarity_threshold = 0.8
     
     def find_duplicates(self, sms_data, book_data, progress_callback=None):
-        """Find duplicates based on phone number and address"""
-        if book_data.empty:
-            st.warning("No historical book data available for duplicate detection")
+        """Find duplicates based on phone number and address using All_Sent_Records.xlsx"""
+        # Load historical data from All_Sent_Records.xlsx instead of using book_data
+        historical_data = self._load_all_sent_records()
+        
+        if historical_data.empty:
+            st.warning("No historical records available for duplicate detection")
             return pd.DataFrame()
         
         duplicates = []
@@ -31,33 +34,33 @@ class DuplicateDetector:
             if not sms_phone and not sms_address:
                 continue
             
-            # Find matches in book data
+            # Find matches in historical data
             phone_matches = []
             address_matches = []
             
-            for book_idx, book_row in book_data.iterrows():
-                book_phone = self._clean_phone(book_row.get('Phone', ''))
-                book_address = self._clean_address(book_row.get('Address', ''))
+            for hist_idx, hist_row in historical_data.iterrows():
+                hist_phone = self._clean_phone(hist_row.get('Phone', ''))
+                hist_address = self._clean_address(hist_row.get('Address', ''))
                 
                 # Check phone match
-                if sms_phone and book_phone and sms_phone == book_phone:
+                if sms_phone and hist_phone and sms_phone == hist_phone:
                     phone_matches.append({
-                        'book_index': book_idx,
+                        'historical_index': hist_idx,
                         'match_type': 'phone',
                         'match_value': sms_phone,
-                        'book_data': book_row.to_dict()
+                        'historical_data': hist_row.to_dict()
                     })
                 
                 # Check address match
-                if sms_address and book_address:
-                    similarity = self._calculate_address_similarity(sms_address, book_address)
+                if sms_address and hist_address:
+                    similarity = self._calculate_address_similarity(sms_address, hist_address)
                     if similarity >= self.similarity_threshold:
                         address_matches.append({
-                            'book_index': book_idx,
+                            'historical_index': hist_idx,
                             'match_type': 'address',
-                            'match_value': book_address,
+                            'match_value': hist_address,
                             'similarity': similarity,
-                            'book_data': book_row.to_dict()
+                            'historical_data': hist_row.to_dict()
                         })
             
             # If we found matches, add to duplicates
@@ -82,6 +85,22 @@ class DuplicateDetector:
             progress_callback(min(processed, total_records), total_records)
         
         return pd.DataFrame(duplicates)
+    
+    def _load_all_sent_records(self):
+        """Load historical data from All_Sent_Records.xlsx"""
+        try:
+            import os
+            historical_file = "All_Sent_Records.xlsx"
+            if os.path.exists(historical_file):
+                df = pd.read_excel(historical_file)
+                # Filter out rows with empty names or phones for better matching
+                df = df.dropna(subset=['Name', 'Phone'], how='all')
+                return df
+            else:
+                return pd.DataFrame()
+        except Exception as e:
+            st.error(f"Error loading historical records: {str(e)}")
+            return pd.DataFrame()
     
     def _clean_phone(self, phone):
         """Clean and standardize phone number"""
@@ -193,11 +212,11 @@ class DuplicateDetector:
         
         # Sort by date if available
         most_recent_match = all_matches[0]
-        book_record = most_recent_match['book_data']
+        historical_record = most_recent_match['historical_data']
         
-        # Get book name and language
-        book_code = book_record.get('Book', '')
-        language = book_record.get('Language', '')
+        # Get book name and language from current SMS request
+        current_book_code = duplicate_record.get('sms_book', '')
+        current_language = duplicate_record.get('sms_language', '')
         
         # Map book code to full name
         book_names = {
@@ -211,10 +230,10 @@ class DuplicateDetector:
             'HDM': 'Hindu Dharma Mahaan'
         }
         
-        book_name = book_names.get(book_code, book_code)
+        book_name = book_names.get(current_book_code, current_book_code)
         
         # Generate message template
-        message = f"""Hello, you requested a free book called *{book_name}* in {language} from Sant Rampal Ji Maharaj.
+        message = f"""Hello, you requested a free book called *{book_name}* in {current_language} from Sant Rampal Ji Maharaj.
 
 However our records indicate that we had already mailed you a free book in the past. Can you please confirm if you already received a book in the past?"""
         
