@@ -507,37 +507,46 @@ class UIComponents:
         logger.info("🔍 All confirmation buttons rendered successfully!")
     
     def show_analytics(self, sms_data):
-        """Show comprehensive analytics and reports"""
-        st.markdown("### 📊 Analytics Dashboard")
+        """Show comprehensive analytics and reports from All_Sent_Records.xlsx"""
+        st.markdown("### 📊 Analytics Dashboard - All Sent Records")
+        
+        # Load all historical data from All_Sent_Records.xlsx
+        historical_data = self._load_historical_data()
+        
+        if historical_data.empty:
+            st.warning("⚠️ No historical data found in All_Sent_Records.xlsx")
+            return
+        
+        st.info(f"📊 Showing analytics for **{len(historical_data)}** records from All_Sent_Records.xlsx")
         
         # Create tabs for different analytics sections
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["📚 Books & Languages", "🗺️ Geographic", "📈 Trends & Time", "📊 Summary Stats", "🔍 Data Quality"])
         
         with tab1:
-            self._show_book_language_analytics(sms_data)
+            self._show_book_language_analytics(historical_data)
         
         with tab2:
-            self._show_geographic_analytics(sms_data)
+            self._show_geographic_analytics(historical_data)
         
         with tab3:
-            self._show_trend_analytics(sms_data)
+            self._show_trend_analytics(historical_data)
         
         with tab4:
-            self._show_summary_statistics(sms_data)
+            self._show_summary_statistics(historical_data)
         
         with tab5:
-            self._show_data_quality_metrics(sms_data)
+            self._show_data_quality_metrics(historical_data)
     
-    def _show_book_language_analytics(self, sms_data):
-        """Show book and language distribution analytics"""
-        st.markdown("#### 📚 Book & Language Analytics")
+    def _show_book_language_analytics(self, historical_data):
+        """Show book and language distribution analytics from All_Sent_Records.xlsx"""
+        st.markdown("#### 📚 Book & Language Analytics - All Sent Records")
         
         col1, col2 = st.columns(2)
         
         with col1:
             # Book distribution
-            if 'Book' in sms_data.columns:
-                book_counts = sms_data['Book'].value_counts()
+            if 'Book' in historical_data.columns:
+                book_counts = historical_data['Book'].value_counts()
                 st.markdown("**Book Requests Distribution**")
                 fig = px.bar(
                     x=book_counts.index,
@@ -551,8 +560,8 @@ class UIComponents:
         
         with col2:
             # Language distribution
-            if 'Language' in sms_data.columns:
-                language_counts = sms_data['Language'].value_counts()
+            if 'Language' in historical_data.columns:
+                language_counts = historical_data['Language'].value_counts()
                 st.markdown("**Language Distribution**")
                 fig = px.pie(
                     values=language_counts.values,
@@ -562,9 +571,9 @@ class UIComponents:
                 st.plotly_chart(fig, use_container_width=True)
         
         # Book-Language combination analysis
-        if 'Book' in sms_data.columns and 'Language' in sms_data.columns:
+        if 'Book' in historical_data.columns and 'Language' in historical_data.columns:
             st.markdown("**Book-Language Combination Analysis**")
-            book_lang_combo = sms_data.groupby(['Book', 'Language']).size().reset_index(name='Count')
+            book_lang_combo = historical_data.groupby(['Book', 'Language']).size().reset_index(name='Count')
             book_lang_combo['Combination'] = book_lang_combo['Book'] + ' - ' + book_lang_combo['Language']
             
             fig = px.bar(
@@ -578,18 +587,12 @@ class UIComponents:
             fig.update_xaxes(tickangle=45)
             st.plotly_chart(fig, use_container_width=True)
     
-    def _show_geographic_analytics(self, sms_data):
-        """Show geographic distribution analytics"""
-        st.markdown("#### 🗺️ Geographic Analytics")
+    def _show_geographic_analytics(self, historical_data):
+        """Show geographic distribution analytics from All_Sent_Records.xlsx"""
+        st.markdown("#### 🗺️ Geographic Analytics - All Sent Records")
         
-        # Load historical data from All_Sent_Records.xlsx
-        historical_data = self._load_historical_data()
-        
-        # Combine current SMS data with historical data
-        combined_data = self._combine_current_and_historical_data(sms_data, historical_data)
-        
-        # Extract geographic information from combined addresses
-        geographic_data = self._extract_geographic_data(combined_data)
+        # Extract geographic information from historical addresses
+        geographic_data = self._extract_geographic_data(historical_data)
         
         if not geographic_data.empty:
             col1, col2 = st.columns(2)
@@ -627,21 +630,14 @@ class UIComponents:
                 )
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Data source breakdown
-            if 'Data_Source' in combined_data.columns:
-                st.markdown("**Data Source Breakdown**")
-                source_counts = combined_data['Data_Source'].value_counts()
-                fig = px.pie(
-                    values=source_counts.values,
-                    names=source_counts.index,
-                    title="Current vs Historical Data Distribution"
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            # Data source breakdown (all historical data)
+            st.markdown("**Data Source: All Historical Records**")
+            st.info("📊 All data comes from All_Sent_Records.xlsx historical records")
             
             # State-Book analysis
-            if 'Book' in combined_data.columns:
+            if 'Book' in historical_data.columns:
                 st.markdown("**Book Distribution by State**")
-                state_book_data = geographic_data.merge(combined_data[['Book']], left_index=True, right_index=True)
+                state_book_data = geographic_data.merge(historical_data[['Book']], left_index=True, right_index=True)
                 state_book_counts = state_book_data.groupby(['State', 'Book']).size().reset_index(name='Count')
                 
                 # Create a pivot table for better visualization
@@ -658,11 +654,11 @@ class UIComponents:
                 st.plotly_chart(fig, use_container_width=True)
             
             # City-Book analysis for top cities
-            if 'Book' in combined_data.columns:
+            if 'Book' in historical_data.columns:
                 st.markdown("**Book Distribution by Top Cities**")
                 top_cities = geographic_data['City'].value_counts().head(10).index
                 city_book_data = geographic_data[geographic_data['City'].isin(top_cities)].merge(
-                    combined_data[['Book']], left_index=True, right_index=True
+                    historical_data[['Book']], left_index=True, right_index=True
                 )
                 city_book_counts = city_book_data.groupby(['City', 'Book']).size().reset_index(name='Count')
                 
@@ -677,23 +673,23 @@ class UIComponents:
                 fig.update_xaxes(tickangle=45)
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Historical vs Current comparison by state
-            if 'Data_Source' in combined_data.columns and 'Book' in combined_data.columns:
-                st.markdown("**Historical vs Current Requests by State**")
-                state_source_data = geographic_data.merge(combined_data[['Data_Source']], left_index=True, right_index=True)
-                state_source_counts = state_source_data.groupby(['State', 'Data_Source']).size().reset_index(name='Count')
+            # Historical data by state (all data is historical)
+            if 'Book' in historical_data.columns:
+                st.markdown("**Historical Requests by State**")
+                state_book_data = geographic_data.merge(historical_data[['Book']], left_index=True, right_index=True)
+                state_counts = state_book_data.groupby('State').size().reset_index(name='Count')
                 
                 # Get top 10 states for comparison
                 top_states = geographic_data['State'].value_counts().head(10).index
-                state_source_filtered = state_source_counts[state_source_counts['State'].isin(top_states)]
+                state_filtered = state_counts[state_counts['State'].isin(top_states)]
                 
                 fig = px.bar(
-                    state_source_filtered,
+                    state_filtered,
                     x='State',
                     y='Count',
-                    color='Data_Source',
-                    title="Historical vs Current Requests by Top States",
-                    barmode='group'
+                    title="Historical Requests by Top States",
+                    color='Count',
+                    color_continuous_scale='Blues'
                 )
                 fig.update_xaxes(tickangle=45)
                 st.plotly_chart(fig, use_container_width=True)
@@ -883,25 +879,29 @@ class UIComponents:
             logger.error(f"❌ Error combining data: {e}")
             return sms_data
     
-    def _show_trend_analytics(self, sms_data):
-        """Show time-based trend analytics"""
-        st.markdown("#### 📈 Trend Analytics")
+    def _show_trend_analytics(self, historical_data):
+        """Show time-based trend analytics from All_Sent_Records.xlsx"""
+        st.markdown("#### 📈 Trend Analytics - All Sent Records")
         
         # Date-based analysis
-        if 'Date Received' in sms_data.columns:
-            # Convert date column to datetime
-            sms_data_copy = sms_data.copy()
-            sms_data_copy['Date Received'] = pd.to_datetime(sms_data_copy['Date Received'], errors='coerce')
+        if 'Sent_Date' in historical_data.columns:
+            # Convert date column to datetime, handling mixed types
+            historical_data_copy = historical_data.copy()
+            historical_data_copy['Sent_Date'] = pd.to_datetime(historical_data_copy['Sent_Date'], errors='coerce')
             
-            # Filter out invalid dates
-            valid_dates = sms_data_copy.dropna(subset=['Date Received'])
+            # Filter out invalid dates (NaT values)
+            valid_dates = historical_data_copy.dropna(subset=['Sent_Date'])
+            
+            if valid_dates.empty:
+                st.warning("⚠️ No valid dates found in Sent_Date column")
+                return
             
             if not valid_dates.empty:
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     # Daily trend
-                    daily_counts = valid_dates.groupby(valid_dates['Date Received'].dt.date).size()
+                    daily_counts = valid_dates.groupby(valid_dates['Sent_Date'].dt.date).size()
                     st.markdown("**Daily Request Trends**")
                     fig = px.line(
                         x=daily_counts.index,
@@ -912,7 +912,7 @@ class UIComponents:
                 
                 with col2:
                     # Monthly trend
-                    monthly_counts = valid_dates.groupby(valid_dates['Date Received'].dt.to_period('M')).size()
+                    monthly_counts = valid_dates.groupby(valid_dates['Sent_Date'].dt.to_period('M')).size()
                     st.markdown("**Monthly Request Trends**")
                     fig = px.bar(
                         x=[str(period) for period in monthly_counts.index],
@@ -922,10 +922,10 @@ class UIComponents:
                     st.plotly_chart(fig, use_container_width=True)
                 
                 # Book trends over time
-                if 'Book' in sms_data.columns:
+                if 'Book' in historical_data.columns:
                     st.markdown("**Book Request Trends Over Time**")
-                    book_trends = valid_dates.groupby([valid_dates['Date Received'].dt.to_period('M'), 'Book']).size().reset_index(name='Count')
-                    book_trends['Period'] = book_trends['Date Received'].astype(str)
+                    book_trends = valid_dates.groupby([valid_dates['Sent_Date'].dt.to_period('M'), 'Book']).size().reset_index(name='Count')
+                    book_trends['Period'] = book_trends['Sent_Date'].astype(str)
                     
                     fig = px.line(
                         book_trends,
@@ -937,82 +937,48 @@ class UIComponents:
                     fig.update_xaxes(tickangle=45)
                     st.plotly_chart(fig, use_container_width=True)
         
-        # Historical comparison using All_Sent_Records.xlsx
-        historical_data = self._load_historical_data()
-        if not historical_data.empty and 'Sent_Date' in historical_data.columns:
-            st.markdown("**Historical vs Current Requests**")
+        # Year-over-year comparison
+        if not valid_dates.empty:
+            st.markdown("**Year-over-Year Comparison**")
             
-            # Process historical data
-            historical_data['Sent_Date'] = pd.to_datetime(historical_data['Sent_Date'], errors='coerce')
-            historical_valid = historical_data.dropna(subset=['Sent_Date'])
+            # Get data by year
+            yearly_counts = valid_dates.groupby(valid_dates['Sent_Date'].dt.year).size()
             
-            if not historical_valid.empty:
-                # Get current year data
-                current_year = pd.Timestamp.now().year
-                historical_current_year = historical_valid[historical_valid['Sent_Date'].dt.year == current_year]
-                sms_current_year = valid_dates[valid_dates['Date Received'].dt.year == current_year] if not valid_dates.empty else pd.DataFrame()
-                
-                # Monthly comparison
-                if not historical_current_year.empty:
-                    hist_monthly = historical_current_year.groupby(historical_current_year['Sent_Date'].dt.to_period('M')).size()
-                else:
-                    hist_monthly = pd.Series(dtype=int)
-                
-                if not sms_current_year.empty:
-                    sms_monthly = sms_current_year.groupby(sms_current_year['Date Received'].dt.to_period('M')).size()
-                else:
-                    sms_monthly = pd.Series(dtype=int)
-                
-                # Create comparison chart
-                months = sorted(set(list(hist_monthly.index) + list(sms_monthly.index)))
-                hist_data = [hist_monthly.get(month, 0) for month in months]
-                sms_data = [sms_monthly.get(month, 0) for month in months]
-                
-                comparison_df = pd.DataFrame({
-                    'Month': [str(month) for month in months],
-                    'Historical': hist_data,
-                    'Current': sms_data
-                })
-                
+            if len(yearly_counts) > 1:
                 fig = px.bar(
-                    comparison_df,
-                    x='Month',
-                    y=['Historical', 'Current'],
-                    title=f"Historical vs Current Requests ({current_year})",
-                    barmode='group'
+                    x=yearly_counts.index,
+                    y=yearly_counts.values,
+                    title="Book Requests by Year",
+                    labels={'x': 'Year', 'y': 'Number of Requests'}
                 )
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info(f"Data available for {len(yearly_counts)} year(s): {list(yearly_counts.index)}")
     
-    def _show_summary_statistics(self, sms_data):
-        """Show comprehensive summary statistics"""
-        st.markdown("#### 📊 Summary Statistics")
-        
-        # Load historical data and combine with current data
-        historical_data = self._load_historical_data()
-        combined_data = self._combine_current_and_historical_data(sms_data, historical_data)
+    def _show_summary_statistics(self, historical_data):
+        """Show comprehensive summary statistics from All_Sent_Records.xlsx"""
+        st.markdown("#### 📊 Summary Statistics - All Sent Records")
         
         # Key Performance Indicators
-        st.markdown("**Key Performance Indicators (All Data)**")
+        st.markdown("**Key Performance Indicators (All Sent Records)**")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            total_requests = len(combined_data)
-            current_requests = len(sms_data)
-            historical_requests = len(historical_data) if not historical_data.empty else 0
-            st.metric("Total Requests", total_requests, f"Current: {current_requests}, Historical: {historical_requests}")
+            total_requests = len(historical_data)
+            st.metric("Total Requests", total_requests)
         
         with col2:
-            unique_books = combined_data['Book'].nunique() if 'Book' in combined_data.columns else 0
+            unique_books = historical_data['Book'].nunique() if 'Book' in historical_data.columns else 0
             st.metric("Unique Books", unique_books)
         
         with col3:
-            unique_languages = combined_data['Language'].nunique() if 'Language' in combined_data.columns else 0
+            unique_languages = historical_data['Language'].nunique() if 'Language' in historical_data.columns else 0
             st.metric("Languages", unique_languages)
         
         with col4:
-            # Calculate geographic diversity from combined data
-            geographic_data = self._extract_geographic_data(combined_data)
+            # Calculate geographic diversity from historical data
+            geographic_data = self._extract_geographic_data(historical_data)
             unique_states = geographic_data['State'].nunique() if not geographic_data.empty else 0
             st.metric("States Covered", unique_states)
         
@@ -1022,14 +988,14 @@ class UIComponents:
         col1, col2 = st.columns(2)
         
         with col1:
-            if 'Book' in combined_data.columns:
-                top_book = combined_data['Book'].value_counts().index[0]
-                top_book_count = combined_data['Book'].value_counts().iloc[0]
+            if 'Book' in historical_data.columns:
+                top_book = historical_data['Book'].value_counts().index[0]
+                top_book_count = historical_data['Book'].value_counts().iloc[0]
                 st.metric("Most Requested Book", f"{top_book}", f"{top_book_count} requests")
             
-            if 'Language' in combined_data.columns:
-                top_language = combined_data['Language'].value_counts().index[0]
-                top_language_count = combined_data['Language'].value_counts().iloc[0]
+            if 'Language' in historical_data.columns:
+                top_language = historical_data['Language'].value_counts().index[0]
+                top_language_count = historical_data['Language'].value_counts().iloc[0]
                 st.metric("Most Requested Language", f"{top_language}", f"{top_language_count} requests")
         
         with col2:
@@ -1045,14 +1011,14 @@ class UIComponents:
         # Distribution insights
         st.markdown("**Distribution Insights (All Data)**")
         
-        if 'Book' in combined_data.columns:
-            book_distribution = combined_data['Book'].value_counts()
-            most_popular_share = (book_distribution.iloc[0] / len(combined_data)) * 100
+        if 'Book' in historical_data.columns:
+            book_distribution = historical_data['Book'].value_counts()
+            most_popular_share = (book_distribution.iloc[0] / len(historical_data)) * 100
             st.info(f"📚 The most popular book ({book_distribution.index[0]}) represents {most_popular_share:.1f}% of all requests")
         
-        if 'Language' in combined_data.columns:
-            language_distribution = combined_data['Language'].value_counts()
-            english_share = (language_distribution.get('English', 0) / len(combined_data)) * 100
+        if 'Language' in historical_data.columns:
+            language_distribution = historical_data['Language'].value_counts()
+            english_share = (language_distribution.get('English', 0) / len(historical_data)) * 100
             st.info(f"🌍 English requests represent {english_share:.1f}% of all requests")
         
         if not geographic_data.empty:
@@ -1060,60 +1026,43 @@ class UIComponents:
             top_state_share = (state_distribution.iloc[0] / len(geographic_data)) * 100
             st.info(f"🗺️ The top state ({state_distribution.index[0]}) represents {top_state_share:.1f}% of all requests")
         
-        # Historical vs Current breakdown
-        if 'Data_Source' in combined_data.columns:
-            st.markdown("**Historical vs Current Breakdown**")
-            
-            current_count = len(combined_data[combined_data['Data_Source'] == 'Current'])
-            historical_count = len(combined_data[combined_data['Data_Source'] == 'Historical'])
-            total_count = len(combined_data)
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                current_percentage = (current_count / total_count) * 100
-                st.metric("Current Requests", current_count, f"{current_percentage:.1f}%")
-            
-            with col2:
-                historical_percentage = (historical_count / total_count) * 100
-                st.metric("Historical Requests", historical_count, f"{historical_percentage:.1f}%")
-            
-            with col3:
-                st.metric("Total Records", total_count)
+        # All data is historical from All_Sent_Records.xlsx
+        st.markdown("**Data Source: All Historical Records**")
+        st.info("📊 All data comes from All_Sent_Records.xlsx historical records")
     
-    def _show_data_quality_metrics(self, sms_data):
-        """Show data quality metrics"""
-        st.markdown("#### 📈 Data Quality Metrics")
+    def _show_data_quality_metrics(self, historical_data):
+        """Show data quality metrics from All_Sent_Records.xlsx"""
+        st.markdown("#### 📈 Data Quality Metrics - All Sent Records")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            completeness = (1 - sms_data.isnull().sum().sum() / (len(sms_data) * len(sms_data.columns))) * 100
+            completeness = (1 - historical_data.isnull().sum().sum() / (len(historical_data) * len(historical_data.columns))) * 100
             st.metric("Overall Completeness", f"{completeness:.1f}%")
         
         with col2:
-            if 'Book' in sms_data.columns:
-                book_completeness = (1 - sms_data['Book'].isnull().sum() / len(sms_data)) * 100
+            if 'Book' in historical_data.columns:
+                book_completeness = (1 - historical_data['Book'].isnull().sum() / len(historical_data)) * 100
                 st.metric("Book Completeness", f"{book_completeness:.1f}%")
         
         with col3:
-            if 'Language' in sms_data.columns:
-                language_completeness = (1 - sms_data['Language'].isnull().sum() / len(sms_data)) * 100
+            if 'Language' in historical_data.columns:
+                language_completeness = (1 - historical_data['Language'].isnull().sum() / len(historical_data)) * 100
                 st.metric("Language Completeness", f"{language_completeness:.1f}%")
         
         with col4:
-            if 'Phone' in sms_data.columns:
-                phone_completeness = (1 - sms_data['Phone'].isnull().sum() / len(sms_data)) * 100
+            if 'Phone' in historical_data.columns:
+                phone_completeness = (1 - historical_data['Phone'].isnull().sum() / len(historical_data)) * 100
                 st.metric("Phone Completeness", f"{phone_completeness:.1f}%")
         
         # Detailed quality analysis
         st.markdown("**Detailed Quality Analysis**")
         
         quality_metrics = []
-        for column in sms_data.columns:
+        for column in historical_data.columns:
             if column in ['Name', 'Phone', 'Address', 'Book', 'Language', 'Email']:
-                null_count = sms_data[column].isnull().sum()
-                null_percentage = (null_count / len(sms_data)) * 100
+                null_count = historical_data[column].isnull().sum()
+                null_percentage = (null_count / len(historical_data)) * 100
                 quality_metrics.append({
                     'Field': column,
                     'Missing Count': null_count,
@@ -1128,19 +1077,19 @@ class UIComponents:
         # Data validation insights
         st.markdown("**Data Validation Insights**")
         
-        if 'Phone' in sms_data.columns:
+        if 'Phone' in historical_data.columns:
             # Check for valid phone number patterns
             phone_pattern = r'^\d{10}$'
-            valid_phones = sms_data['Phone'].astype(str).str.match(phone_pattern).sum()
-            phone_validity = (valid_phones / len(sms_data)) * 100
+            valid_phones = historical_data['Phone'].astype(str).str.match(phone_pattern).sum()
+            phone_validity = (valid_phones / len(historical_data)) * 100
             st.info(f"📱 {phone_validity:.1f}% of phone numbers follow the 10-digit format")
         
-        if 'Address' in sms_data.columns:
+        if 'Address' in historical_data.columns:
             # Check for complete addresses
-            complete_addresses = sms_data['Address'].dropna().apply(
+            complete_addresses = historical_data['Address'].dropna().apply(
                 lambda x: len(str(x).split()) >= 3
             ).sum()
-            address_completeness = (complete_addresses / len(sms_data)) * 100
+            address_completeness = (complete_addresses / len(historical_data)) * 100
             st.info(f"🏠 {address_completeness:.1f}% of addresses appear to be complete (3+ words)")
     
     def _send_whatsapp_messages(self, sms_data, duplicates, message_sender):
