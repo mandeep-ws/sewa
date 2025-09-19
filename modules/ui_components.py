@@ -1094,6 +1094,12 @@ class UIComponents:
     
     def _send_whatsapp_messages(self, sms_data, duplicates, message_sender):
         """Send WhatsApp messages to all recipients"""
+        import pandas as pd
+        from datetime import datetime
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
         st.markdown("### 💬 Sending WhatsApp Messages...")
         
         progress_bar = st.progress(0)
@@ -1105,25 +1111,136 @@ class UIComponents:
             progress_bar.progress(min(progress, 1.0))  # Ensure progress never exceeds 1.0
             status_text.text(f"Sending WhatsApp to {row['Name']} ({i + 1}/{len(sms_data)})")
             
-            # Generate message
-            if duplicates is not None and not duplicates.empty:
-                duplicate_record = duplicates[duplicates['sms_index'] == idx]
-                if not duplicate_record.empty:
-                    message = message_sender.get_duplicate_message_template(duplicate_record.iloc[0])
+            logger.info(f"📱 Processing WhatsApp for {row['Name']} - Phone: {row['Phone']}")
+            
+            # Skip if name or phone is empty
+            if not row.get('Name') or not row.get('Phone'):
+                logger.info(f"⏭️ Skipping {row.get('Name', 'Unknown')} - empty name or phone")
+                self._record_duplicate_transaction(row, "Empty name or phone number")
+                
+                result = {
+                    'success': False,
+                    'error': 'Empty name or phone number',
+                    'name': row.get('Name', ''),
+                    'phone': row.get('Phone', ''),
+                    'skipped': True,
+                    'record_index': idx
+                }
+                results.append(result)
+                continue
+            
+            # Check if this person has already been sent a WhatsApp message for the same book
+            # Use the same book defaulting logic as in message generation
+            book = row.get('Book', '')
+            if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                book = 'GG'
+            
+            if self._was_message_already_sent(row['Name'], row['Phone'], book, 'WhatsApp'):
+                logger.info(f"⏭️ Skipping {row['Name']} - WhatsApp message already sent for this book previously")
+                self._record_duplicate_transaction(row, "WhatsApp message already sent for this book previously")
+                
+                # Add a skipped result
+                result = {
+                    'success': False,
+                    'error': 'WhatsApp message already sent for this book previously',
+                    'name': row['Name'],
+                    'phone': row['Phone'],
+                    'skipped': True,
+                    'record_index': idx
+                }
+                results.append(result)
+                continue
+            
+            # Generate message based on duplicate status
+            # Check if person is a historical customer
+            is_historical_customer = self._is_historical_customer(row['Name'], row['Phone'])
+            
+            if is_historical_customer:
+                logger.info(f"🔍 Historical customer detected for WhatsApp: {row['Name']} - duplicates available: {duplicates is not None}")
+                
+                # Use duplicate message template for historical customers
+                if duplicates is not None and not duplicates.empty:
+                    duplicate_record = duplicates[duplicates['sms_index'] == idx]
+                    logger.info(f"🔍 Looking for duplicate record with sms_index {idx}, found: {len(duplicate_record)} records")
+                    if not duplicate_record.empty:
+                        logger.info(f"🔍 DEBUG: Calling get_duplicate_message_template with duplicate record: {duplicate_record.iloc[0].to_dict()}")
+                        logger.info(f"🔍 DEBUG: About to call get_duplicate_message_template function")
+                        message = message_sender.get_duplicate_message_template(duplicate_record.iloc[0])
+                        logger.info(f"🔍 DEBUG: get_duplicate_message_template function returned: {message[:100] if message else 'None'}...")
+                        logger.info(f"📝 Using duplicate message template for historical customer: {row['Name']}")
+                    else:
+                        # Fallback to new customer template if no duplicate record found
+                        book = row.get('Book', '')
+                        language = row.get('Language', '')
+                        if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                            book = 'GG'
+                        if pd.isna(language) or language == '' or str(language).lower() == 'nan':
+                            language = 'English'
+                        
+                        corrected_row = row.copy()
+                        corrected_row['Book'] = book
+                        corrected_row['Language'] = language
+                        
+                        has_book_language = bool(book and language)
+                        message = message_sender.get_new_customer_message_template(corrected_row, has_book_language)
+                        logger.info(f"📝 Using new customer template for historical customer (no duplicate record): {row['Name']} - Book: {book}, Language: {language}")
                 else:
-                    has_book_language = bool(row.get('Book') and row.get('Language'))
-                    message = message_sender.get_new_customer_message_template(row, has_book_language)
+                    # No duplicates data, use new customer template
+                    logger.info(f"❌ PROBLEM: No duplicates data available for historical customer: {row['Name']}")
+                    book = row.get('Book', '')
+                    language = row.get('Language', '')
+                    if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                        book = 'GG'
+                    if pd.isna(language) or language == '' or str(language).lower() == 'nan':
+                        language = 'English'
+                    
+                    corrected_row = row.copy()
+                    corrected_row['Book'] = book
+                    corrected_row['Language'] = language
+                    
+                    has_book_language = bool(book and language)
+                    message = message_sender.get_new_customer_message_template(corrected_row, has_book_language)
+                    logger.info(f"📝 Using new customer template for historical customer (no duplicates data): {row['Name']} - Book: {book}, Language: {language}")
             else:
+                # New customer, use new customer template
                 has_book_language = bool(row.get('Book') and row.get('Language'))
                 message = message_sender.get_new_customer_message_template(row, has_book_language)
+                logger.info(f"📝 Using new customer template for new customer: {row['Name']}")
+            
+            logger.info(f"📝 Generated WhatsApp message for {row['Name']}: {message[:100]}...")
             
             # Send WhatsApp message
+            logger.info(f"🚀 About to call message_sender.send_whatsapp_message for {row['Name']}")
             result = message_sender.send_whatsapp_message(row['Phone'], message)
+            logger.info(f"🚀 WhatsApp send result received: {result}")
             result.update({'name': row['Name'], 'phone': row['Phone'], 'record_index': idx})
+            
+            # Record failed transactions (invalid phone numbers)
+            if not result.get('success') and 'phone' in result.get('error', '').lower():
+                self._record_failed_transaction(row, result.get('error', 'Unknown error'))
+            
             results.append(result)
+            
+            # Note: Not adding to memory - only file-based duplicate prevention
+            
+            logger.info(f"📊 WhatsApp result for {row['Name']}: {result}")
         
         progress_bar.progress(1.0)
         status_text.text("WhatsApp sending complete!")
+        
+        # Count results
+        successful = [r for r in results if r.get('success')]
+        skipped = [r for r in results if r.get('skipped')]
+        failed = [r for r in results if not r.get('success') and not r.get('skipped')]
+        
+        successful_count = len(successful)
+        skipped_count = len(skipped)
+        failed_count = len(failed)
+        
+        logger.info(f"✅ Batch WhatsApp sending completed. Results: {len(results)} total, {successful_count} successful, {skipped_count} skipped, {failed_count} failed")
+        
+        # Create new records file with sending results
+        self._create_new_records_file(results, "WhatsApp")
         
         # Show results
         self._show_sending_results(results, "WhatsApp")
@@ -1300,6 +1417,12 @@ class UIComponents:
     
     def _send_both_messages(self, sms_data, duplicates, message_sender):
         """Send both WhatsApp and SMS messages to all recipients"""
+        import pandas as pd
+        from datetime import datetime
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
         st.markdown("### 🔄 Sending Both WhatsApp and SMS Messages...")
         
         progress_bar = st.progress(0)
@@ -1311,25 +1434,140 @@ class UIComponents:
             progress_bar.progress(min(progress, 1.0))  # Ensure progress never exceeds 1.0
             status_text.text(f"Sending messages to {row['Name']} ({i + 1}/{len(sms_data)})")
             
-            # Generate message
-            if duplicates is not None and not duplicates.empty:
-                duplicate_record = duplicates[duplicates['sms_index'] == idx]
-                if not duplicate_record.empty:
-                    message = message_sender.get_duplicate_message_template(duplicate_record.iloc[0])
+            logger.info(f"📱 Processing Both for {row['Name']} - Phone: {row['Phone']}")
+            
+            # Skip if name or phone is empty
+            if not row.get('Name') or not row.get('Phone'):
+                logger.info(f"⏭️ Skipping {row.get('Name', 'Unknown')} - empty name or phone")
+                self._record_duplicate_transaction(row, "Empty name or phone number")
+                
+                result = {
+                    'success': False,
+                    'error': 'Empty name or phone number',
+                    'name': row.get('Name', ''),
+                    'phone': row.get('Phone', ''),
+                    'skipped': True,
+                    'record_index': idx
+                }
+                results.append(result)
+                continue
+            
+            # Check if this person has already been sent messages for the same book
+            # Use the same book defaulting logic as in message generation
+            book = row.get('Book', '')
+            if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                book = 'GG'
+            
+            # Check for both SMS and WhatsApp duplicates
+            sms_sent = self._was_message_already_sent(row['Name'], row['Phone'], book, 'SMS')
+            whatsapp_sent = self._was_message_already_sent(row['Name'], row['Phone'], book, 'WhatsApp')
+            
+            if sms_sent and whatsapp_sent:
+                logger.info(f"⏭️ Skipping {row['Name']} - Both SMS and WhatsApp messages already sent for this book previously")
+                self._record_duplicate_transaction(row, "Both SMS and WhatsApp messages already sent for this book previously")
+                
+                # Add a skipped result
+                result = {
+                    'success': False,
+                    'error': 'Both SMS and WhatsApp messages already sent for this book previously',
+                    'name': row['Name'],
+                    'phone': row['Phone'],
+                    'skipped': True,
+                    'record_index': idx
+                }
+                results.append(result)
+                continue
+            
+            # Generate message based on duplicate status
+            # Check if person is a historical customer
+            is_historical_customer = self._is_historical_customer(row['Name'], row['Phone'])
+            
+            if is_historical_customer:
+                logger.info(f"🔍 Historical customer detected for Both: {row['Name']} - duplicates available: {duplicates is not None}")
+                
+                # Use duplicate message template for historical customers
+                if duplicates is not None and not duplicates.empty:
+                    duplicate_record = duplicates[duplicates['sms_index'] == idx]
+                    logger.info(f"🔍 Looking for duplicate record with sms_index {idx}, found: {len(duplicate_record)} records")
+                    if not duplicate_record.empty:
+                        logger.info(f"🔍 DEBUG: Calling get_duplicate_message_template with duplicate record: {duplicate_record.iloc[0].to_dict()}")
+                        logger.info(f"🔍 DEBUG: About to call get_duplicate_message_template function")
+                        message = message_sender.get_duplicate_message_template(duplicate_record.iloc[0])
+                        logger.info(f"🔍 DEBUG: get_duplicate_message_template function returned: {message[:100] if message else 'None'}...")
+                        logger.info(f"📝 Using duplicate message template for historical customer: {row['Name']}")
+                    else:
+                        # Fallback to new customer template if no duplicate record found
+                        book = row.get('Book', '')
+                        language = row.get('Language', '')
+                        if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                            book = 'GG'
+                        if pd.isna(language) or language == '' or str(language).lower() == 'nan':
+                            language = 'English'
+                        
+                        corrected_row = row.copy()
+                        corrected_row['Book'] = book
+                        corrected_row['Language'] = language
+                        
+                        has_book_language = bool(book and language)
+                        message = message_sender.get_new_customer_message_template(corrected_row, has_book_language)
+                        logger.info(f"📝 Using new customer template for historical customer (no duplicate record): {row['Name']} - Book: {book}, Language: {language}")
                 else:
-                    has_book_language = bool(row.get('Book') and row.get('Language'))
-                    message = message_sender.get_new_customer_message_template(row, has_book_language)
+                    # No duplicates data, use new customer template
+                    logger.info(f"❌ PROBLEM: No duplicates data available for historical customer: {row['Name']}")
+                    book = row.get('Book', '')
+                    language = row.get('Language', '')
+                    if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                        book = 'GG'
+                    if pd.isna(language) or language == '' or str(language).lower() == 'nan':
+                        language = 'English'
+                    
+                    corrected_row = row.copy()
+                    corrected_row['Book'] = book
+                    corrected_row['Language'] = language
+                    
+                    has_book_language = bool(book and language)
+                    message = message_sender.get_new_customer_message_template(corrected_row, has_book_language)
+                    logger.info(f"📝 Using new customer template for historical customer (no duplicates data): {row['Name']} - Book: {book}, Language: {language}")
             else:
+                # New customer, use new customer template
                 has_book_language = bool(row.get('Book') and row.get('Language'))
                 message = message_sender.get_new_customer_message_template(row, has_book_language)
+                logger.info(f"📝 Using new customer template for new customer: {row['Name']}")
+            
+            logger.info(f"📝 Generated message for Both: {row['Name']}: {message[:100]}...")
             
             # Send both messages
+            logger.info(f"🚀 About to call message_sender.send_both_messages for {row['Name']}")
             result = message_sender.send_both_messages(row['Phone'], message)
+            logger.info(f"🚀 Both send result received: {result}")
             result.update({'name': row['Name'], 'phone': row['Phone'], 'record_index': idx})
+            
+            # Record failed transactions (invalid phone numbers)
+            if not result.get('success') and 'phone' in result.get('error', '').lower():
+                self._record_failed_transaction(row, result.get('error', 'Unknown error'))
+            
             results.append(result)
+            
+            # Note: Not adding to memory - only file-based duplicate prevention
+            
+            logger.info(f"📊 Both result for {row['Name']}: {result}")
         
         progress_bar.progress(1.0)
         status_text.text("Message sending complete!")
+        
+        # Count results
+        successful = [r for r in results if r.get('success')]
+        skipped = [r for r in results if r.get('skipped')]
+        failed = [r for r in results if not r.get('success') and not r.get('skipped')]
+        
+        successful_count = len(successful)
+        skipped_count = len(skipped)
+        failed_count = len(failed)
+        
+        logger.info(f"✅ Batch Both sending completed. Results: {len(results)} total, {successful_count} successful, {skipped_count} skipped, {failed_count} failed")
+        
+        # Create new records file with sending results
+        self._create_new_records_file(results, "Both")
         
         # Show results
         self._show_sending_results(results, "Both WhatsApp and SMS")
