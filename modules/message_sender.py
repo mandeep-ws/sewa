@@ -30,14 +30,16 @@ class MessageSender:
     def __init__(self):
         logger.info("🔧 Initializing MessageSender...")
         
-        # Initialize Twilio client for SMS
+        # Initialize Twilio client for SMS and WhatsApp
         self.twilio_account_sid = os.getenv('TWILIO_ACCOUNT_SID')
         self.twilio_auth_token = os.getenv('TWILIO_AUTH_TOKEN')
-        self.twilio_phone_number = os.getenv('TWILIO_PHONE_NUMBER')
+        self.twilio_sms_phone_number = os.getenv('TWILIO_SMS_PHONE_NUMBER')
+        self.twilio_whatsapp_phone_number = os.getenv('TWILIO_WHATSAPP_PHONE_NUMBER')
         
         logger.info(f"📋 Twilio Account SID: {self.twilio_account_sid[:10]}..." if self.twilio_account_sid else "❌ No Account SID")
         logger.info(f"🔑 Twilio Auth Token: {'***' + self.twilio_auth_token[-4:] if self.twilio_auth_token else '❌ No Auth Token'}")
-        logger.info(f"📞 Twilio Phone Number: {self.twilio_phone_number if self.twilio_phone_number else '❌ No Phone Number'}")
+        logger.info(f"📞 Twilio SMS Phone Number: {self.twilio_sms_phone_number if self.twilio_sms_phone_number else '❌ No SMS Phone Number'}")
+        logger.info(f"📞 Twilio WhatsApp Phone Number: {self.twilio_whatsapp_phone_number if self.twilio_whatsapp_phone_number else '❌ No WhatsApp Phone Number'}")
         
         if self.twilio_account_sid and self.twilio_auth_token:
             try:
@@ -83,13 +85,15 @@ class MessageSender:
             # Format phone number for WhatsApp
             whatsapp_number = f"whatsapp:+{formatted_number}"
             logger.info(f"📞 WhatsApp number: {whatsapp_number}")
-            logger.info(f"📞 Sending from: whatsapp:{self.twilio_phone_number}")
+            logger.info(f"📞 Sending from: whatsapp:{self.twilio_whatsapp_phone_number}")
             
-            # Send message
-            logger.info("🚀 Sending WhatsApp via Twilio...")
+            # Send message using free-form text (no template)
+            logger.info("🚀 Sending WhatsApp via free-form message...")
+            logger.info(f"📝 Message content: {message[:100]}...")
+            
             message_obj = self.twilio_client.messages.create(
                 body=message,
-                from_=f"whatsapp:{self.twilio_phone_number}",
+                from_=f"whatsapp:{self.twilio_whatsapp_phone_number}",
                 to=whatsapp_number
             )
             
@@ -141,13 +145,13 @@ class MessageSender:
             # Add + prefix for international format
             formatted_number = f"+{formatted_number}"
             logger.info(f"📞 Formatted phone number: {formatted_number}")
-            logger.info(f"📞 Sending from: {self.twilio_phone_number}")
+            logger.info(f"📞 Sending from: {self.twilio_sms_phone_number}")
             
             # Send message
             logger.info("🚀 Sending SMS via Twilio...")
             message_obj = self.twilio_client.messages.create(
                 body=message,
-                from_=self.twilio_phone_number,
+                from_=self.twilio_sms_phone_number,
                 to=formatted_number
             )
             
@@ -334,9 +338,17 @@ class MessageSender:
         if not phone_number:
             return False, "No phone number provided"
         
+        # Handle float phone numbers (like 2065044242.0)
+        phone_str = str(phone_number)
+        if '.' in phone_str:
+            try:
+                phone_str = str(int(float(phone_str)))
+            except (ValueError, TypeError):
+                pass
+        
         # Remove non-digits
         import re
-        clean_phone = re.sub(r'[^\d]', '', str(phone_number))
+        clean_phone = re.sub(r'[^\d]', '', phone_str)
         
         # Check length
         if len(clean_phone) == 10:

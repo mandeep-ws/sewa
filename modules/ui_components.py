@@ -544,31 +544,31 @@ class UIComponents:
         col1, col2 = st.columns(2)
         
         with col1:
-            # Book distribution
+        # Book distribution
             if 'Book' in historical_data.columns:
                 book_counts = historical_data['Book'].value_counts()
                 st.markdown("**Book Requests Distribution**")
-                fig = px.bar(
-                    x=book_counts.index,
-                    y=book_counts.values,
+            fig = px.bar(
+                x=book_counts.index,
+                y=book_counts.values,
                     title="Book Requests by Type",
                     color=book_counts.values,
                     color_continuous_scale='Blues'
-                )
-                fig.update_layout(showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
+            )
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # Language distribution
+        # Language distribution
             if 'Language' in historical_data.columns:
                 language_counts = historical_data['Language'].value_counts()
                 st.markdown("**Language Distribution**")
-                fig = px.pie(
-                    values=language_counts.values,
-                    names=language_counts.index,
-                    title="Requests by Language"
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            fig = px.pie(
+                values=language_counts.values,
+                names=language_counts.index,
+                title="Requests by Language"
+            )
+            st.plotly_chart(fig, use_container_width=True)
         
         # Book-Language combination analysis
         if 'Book' in historical_data.columns and 'Language' in historical_data.columns:
@@ -1119,7 +1119,7 @@ class UIComponents:
             
             # Send WhatsApp message
             result = message_sender.send_whatsapp_message(row['Phone'], message)
-            result.update({'name': row['Name'], 'phone': row['Phone']})
+            result.update({'name': row['Name'], 'phone': row['Phone'], 'record_index': idx})
             results.append(result)
         
         progress_bar.progress(1.0)
@@ -1271,7 +1271,7 @@ class UIComponents:
             logger.info(f"🚀 About to call message_sender.send_sms_message for {row['Name']}")
             result = message_sender.send_sms_message(row['Phone'], message)
             logger.info(f"🚀 SMS send result received: {result}")
-            result.update({'name': row['Name'], 'phone': row['Phone']})
+            result.update({'name': row['Name'], 'phone': row['Phone'], 'record_index': idx})
             
             # Record failed transactions (invalid phone numbers)
             if not result.get('success') and 'phone' in result.get('error', '').lower():
@@ -1325,7 +1325,7 @@ class UIComponents:
             
             # Send both messages
             result = message_sender.send_both_messages(row['Phone'], message)
-            result.update({'name': row['Name'], 'phone': row['Phone']})
+            result.update({'name': row['Name'], 'phone': row['Phone'], 'record_index': idx})
             results.append(result)
         
         progress_bar.progress(1.0)
@@ -1404,52 +1404,59 @@ class UIComponents:
                 phone = result.get('phone', '')
                 
                 if name and phone:
-                    # Find corresponding SMS record by name AND phone to get the exact record
-                    sms_mask = (sms_df['Name'] == name) & (sms_df['Phone'] == phone)
-                    if sms_mask.any():
-                        sms_record = sms_df[sms_mask].iloc[0]
+                    # Find corresponding SMS record using record_index if available, otherwise by name and phone
+                    record_index = result.get('record_index')
+                    if record_index is not None and record_index in sms_df.index:
+                        sms_record = sms_df.loc[record_index]
+                    else:
+                        # Fallback to name and phone matching
+                        sms_mask = (sms_df['Name'] == name) & (sms_df['Phone'] == phone)
+                        if sms_mask.any():
+                            sms_record = sms_df[sms_mask].iloc[0]
+                        else:
+                            continue
+                    
+                    # Create new record with all necessary fields
+                    new_record = {
+                        # Core identification fields
+                        'Name': sms_record.get('Name', ''),
+                        'Phone': sms_record.get('Phone', ''),
+                        'Address': sms_record.get('Address', ''),
                         
-                        # Create new record with all necessary fields
-                        new_record = {
-                            # Core identification fields
-                            'Name': sms_record.get('Name', ''),
-                            'Phone': sms_record.get('Phone', ''),
-                            'Address': sms_record.get('Address', ''),
-                            
-                            # Book and language info with defaults
-                            'Book': 'GG' if pd.isna(sms_record.get('Book', '')) or sms_record.get('Book', '') == '' or str(sms_record.get('Book', '')).lower() == 'nan' else sms_record.get('Book', ''),
-                            'Language': 'English' if pd.isna(sms_record.get('Language', '')) or sms_record.get('Language', '') == '' or str(sms_record.get('Language', '')).lower() == 'nan' else sms_record.get('Language', ''),
-                            
-                            # Message sending details
-                            'Message_Type': message_type,
-                            'Sent_Date': current_time,
-                            'Status': "Success",
-                            'Message_ID': result.get('message_sid', ''),
-                            'Error_Message': '',  # No error message for successful messages
-                            
-                            # Additional fields from SMS data
-                            'Email': sms_record.get('Email', ''),
-                            'City': sms_record.get('City', ''),
-                            'State': sms_record.get('State', ''),
-                            'Zip_Code': sms_record.get('Zip_Code', ''),
-                            'Country': sms_record.get('Country', ''),
-                            
-                            # Validation results (if available)
-                            'Phone_Valid': sms_record.get('phone_valid', ''),
-                            'Address_Valid': sms_record.get('address_valid', ''),
-                            'Carrier_Info': sms_record.get('carrier_info', ''),
-                            
-                            # Duplicate status (if available)
-                            'Is_Duplicate': sms_record.get('is_duplicate', False),
-                            'Duplicate_Reason': sms_record.get('duplicate_reason', ''),
-                            
-                            # Campaign tracking
-                            'Campaign_Date': current_time.split(' ')[0],  # Just the date part
-                            'Campaign_Type': f"{message_type}_Campaign"
-                        }
+                        # Book and language info with defaults
+                        'Book': 'GG' if pd.isna(sms_record.get('Book', '')) or sms_record.get('Book', '') == '' or str(sms_record.get('Book', '')).lower() == 'nan' else sms_record.get('Book', ''),
+                        'Language': 'English' if pd.isna(sms_record.get('Language', '')) or sms_record.get('Language', '') == '' or str(sms_record.get('Language', '')).lower() == 'nan' else sms_record.get('Language', ''),
                         
-                        new_records.append(new_record)
-                        logger.info(f"📝 Created new record for {name} - Status: Success")
+                        # Message sending details
+                        'Message_Type': message_type,
+                        'Sent_Date': current_time,
+                        'Status': "Success",
+                        'Message_ID': result.get('message_sid', ''),
+                        'Error_Message': '',  # No error message for successful messages
+                        
+                        # Additional fields from SMS data
+                        'Email': sms_record.get('Email', ''),
+                        'City': sms_record.get('City', ''),
+                        'State': sms_record.get('State', ''),
+                        'Zip_Code': sms_record.get('Zip_Code', ''),
+                        'Country': sms_record.get('Country', ''),
+                        
+                        # Validation results (if available)
+                        'Phone_Valid': sms_record.get('phone_valid', ''),
+                        'Address_Valid': sms_record.get('address_valid', ''),
+                        'Carrier_Info': sms_record.get('carrier_info', ''),
+                        
+                        # Duplicate status (if available)
+                        'Is_Duplicate': sms_record.get('is_duplicate', False),
+                        'Duplicate_Reason': sms_record.get('duplicate_reason', ''),
+                        
+                        # Campaign tracking
+                        'Campaign_Date': current_time.split(' ')[0],  # Just the date part
+                        'Campaign_Type': f"{message_type}_Campaign"
+                    }
+                    
+                    new_records.append(new_record)
+                    logger.info(f"📝 Created new record for {name} - Status: Success")
             
             if new_records:
                 # Create DataFrame from new records

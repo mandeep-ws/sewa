@@ -506,18 +506,50 @@ class DuplicateDetector:
     
     def get_duplicate_message_template(self, duplicate_record):
         """Get the appropriate message template for duplicate customers"""
+        print(f"🔍 DEBUG: get_duplicate_message_template function called with duplicate_record: {duplicate_record}")
+        logger.info(f"🔍 DEBUG: get_duplicate_message_template function called with duplicate_record: {duplicate_record}")
         # This corresponds to the duplicate message template
         phone_matches = duplicate_record.get('phone_matches', [])
         address_matches = duplicate_record.get('address_matches', [])
+        print(f"🔍 DEBUG: phone_matches: {len(phone_matches)}, address_matches: {len(address_matches)}")
+        logger.info(f"🔍 DEBUG: phone_matches: {len(phone_matches)}, address_matches: {len(address_matches)}")
         
         # Get the most recent match
         all_matches = phone_matches + address_matches
         if not all_matches:
             return None
         
-        # Sort by date if available
+        # Sort by date if available to get the most recent match
+        from datetime import datetime
+        def get_sent_date(match):
+            historical_data = match.get('historical_data', {})
+            sent_date = historical_data.get('Sent_Date', '')
+            logger.info(f"🔍 DEBUG: Processing match with sent_date: {sent_date}")
+            if sent_date:
+                try:
+                    # Handle different date formats
+                    if isinstance(sent_date, datetime):
+                        return sent_date
+                    elif isinstance(sent_date, str):
+                        return datetime.strptime(str(sent_date), '%Y-%m-%d %H:%M:%S')
+                    else:
+                        return datetime.min
+                except Exception as e:
+                    logger.error(f"🔍 DEBUG: Error parsing date {sent_date}: {e}")
+                    return datetime.min
+            return datetime.min
+        
+        # Sort by date (most recent first)
+        all_matches.sort(key=get_sent_date, reverse=True)
         most_recent_match = all_matches[0]
         historical_record = most_recent_match['historical_data']
+        
+        # Debug logging to see what historical record is being used
+        logger.info(f"🔍 DEBUG: Found {len(all_matches)} historical matches")
+        for i, match in enumerate(all_matches):
+            hist_data = match.get('historical_data', {})
+            logger.info(f"🔍 DEBUG: Match {i}: Book={hist_data.get('Book', 'N/A')}, Date={hist_data.get('Sent_Date', 'N/A')}")
+        logger.info(f"🔍 DEBUG: Using most recent match: Book={historical_record.get('Book', 'N/A')}, Date={historical_record.get('Sent_Date', 'N/A')}")
         
         # Get book name and language from current SMS request
         current_book_code = duplicate_record.get('sms_book', '')

@@ -344,8 +344,8 @@ def send_messages_page(message_sender, ui_components):
                 logger.error(f"❌ Error sending SMS messages: {e}")
                 st.error(f"Error sending messages: {e}")
         else:
-            # For WhatsApp or Both options, also run duplicate detection first
-            logger.info("📊 Running duplicate detection before message confirmation...")
+            # For WhatsApp or Both options, run duplicate detection and send directly
+            logger.info("📊 Running duplicate detection before sending messages...")
             st.success("🚀 Starting duplicate detection...")
             
             # Create progress indicators
@@ -369,11 +369,35 @@ def send_messages_page(message_sender, ui_components):
             st.session_state.duplicates = duplicates
             logger.info(f"📊 Duplicate detection completed: {len(duplicates) if duplicates is not None else 0} duplicates found")
             
-            ui_components.show_message_confirmation(
-                st.session_state.sms_data,
-                st.session_state.duplicates,
-                message_sender
-            )
+            # Handle WhatsApp sending directly
+            if send_whatsapp:
+                logger.info("🔘 WhatsApp button clicked - sending directly")
+                st.success("🚀 Starting WhatsApp sending...")
+                try:
+                    ui_components._send_whatsapp_messages(
+                        st.session_state.sms_data,
+                        st.session_state.duplicates,
+                        message_sender
+                    )
+                    logger.info("✅ WhatsApp sending completed successfully")
+                except Exception as e:
+                    logger.error(f"❌ Error sending WhatsApp messages: {e}")
+                    st.error(f"Error sending WhatsApp messages: {e}")
+            
+            # Handle Both sending directly
+            if send_both:
+                logger.info("🔘 Both button clicked - sending both SMS and WhatsApp directly")
+                st.success("🚀 Starting Both SMS and WhatsApp sending...")
+                try:
+                    ui_components._send_both_messages(
+                        st.session_state.sms_data,
+                        st.session_state.duplicates,
+                        message_sender
+                    )
+                    logger.info("✅ Both SMS and WhatsApp sending completed successfully")
+                except Exception as e:
+                    logger.error(f"❌ Error sending both messages: {e}")
+                    st.error(f"Error sending both messages: {e}")
 
 def analytics_page(ui_components):
     """Show analytics and reports"""
