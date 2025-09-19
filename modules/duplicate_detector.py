@@ -30,6 +30,7 @@ class DuplicateDetector:
             
             sms_phone = self._clean_phone(sms_row.get('Phone', ''))
             sms_address = self._clean_address(sms_row.get('Address', ''))
+            sms_name = str(sms_row.get('Name', '')).strip().lower()
             
             if not sms_phone and not sms_address:
                 continue
@@ -41,9 +42,10 @@ class DuplicateDetector:
             for hist_idx, hist_row in historical_data.iterrows():
                 hist_phone = self._clean_phone(hist_row.get('Phone', ''))
                 hist_address = self._clean_address(hist_row.get('Address', ''))
+                hist_name = str(hist_row.get('Name', '')).strip().lower()
                 
-                # Check phone match
-                if sms_phone and hist_phone and sms_phone == hist_phone:
+                # Check phone match (must match both phone AND name for phone-based duplicates)
+                if sms_phone and hist_phone and sms_phone == hist_phone and sms_name and hist_name and sms_name == hist_name:
                     phone_matches.append({
                         'historical_index': hist_idx,
                         'match_type': 'phone',

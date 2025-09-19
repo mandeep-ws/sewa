@@ -1818,9 +1818,9 @@ class UIComponents:
                 record_phone = str(record.get('Phone', '')).strip()
                 record_type = str(record.get('Message_Type', '')).strip()
                 
-                # Match by name or phone (all records in All_Sent_Records.xlsx are historical)
-                if ((record_name == current_name and record_name != '') or \
-                    (record_phone == current_phone and record_phone != '')):
+                # Match by name AND phone (all records in All_Sent_Records.xlsx are historical)
+                if (record_name == current_name and record_name != '' and \
+                    record_phone == current_phone and record_phone != ''):
                     logger.info(f"🔍 Found historical customer in All_Sent_Records: {record.get('Name')} - {record.get('Phone')} - Type: {record_type}")
                     return True
             
