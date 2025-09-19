@@ -11,7 +11,7 @@ class DuplicateDetector:
     def __init__(self):
         self.similarity_threshold = 0.8
     
-    def find_duplicates(self, sms_data, book_data=None, progress_callback=None):
+    def find_duplicates(self, sms_data, book_data=None, progress_callback=None, use_multithreading=True, max_workers=10):
         """Find duplicates based on phone number and address using All_Sent_Records.xlsx only"""
         # Load historical data from All_Sent_Records.xlsx only (ignore book_data parameter)
         historical_data = self._load_all_sent_records()
@@ -20,6 +20,13 @@ class DuplicateDetector:
             st.warning("No historical records available for duplicate detection")
             return pd.DataFrame()
         
+        if use_multithreading:
+            return self._find_duplicates_multithreaded(sms_data, historical_data, progress_callback, max_workers)
+        else:
+            return self._find_duplicates_sequential(sms_data, historical_data, progress_callback)
+    
+    def _find_duplicates_sequential(self, sms_data, historical_data, progress_callback=None):
+        """Original sequential duplicate detection"""
         duplicates = []
         total_records = len(sms_data)
         processed = 0
@@ -85,6 +92,115 @@ class DuplicateDetector:
         
         if progress_callback:
             progress_callback(min(processed, total_records), total_records)
+        
+        return pd.DataFrame(duplicates)
+    
+    def _find_duplicates_multithreaded(self, sms_data, historical_data, progress_callback=None, max_workers=10):
+        """Multithreaded duplicate detection for better performance"""
+        import concurrent.futures
+        import threading
+        
+        # Only use multithreading for larger datasets to avoid overhead
+        if len(sms_data) < 10:
+            return self._find_duplicates_sequential(sms_data, historical_data, progress_callback)
+        
+        # Prepare data for multithreading - chunk the data for better performance
+        chunk_size = max(1, len(sms_data) // max_workers)
+        sms_chunks = []
+        
+        for i in range(0, len(sms_data), chunk_size):
+            chunk = sms_data.iloc[i:i+chunk_size]
+            sms_chunks.append(chunk)
+        
+        total_records = len(sms_data)
+        
+        # Thread-safe progress tracking
+        progress_lock = threading.Lock()
+        processed_count = 0
+        duplicates = []
+        
+        def find_duplicates_for_chunk(chunk_data):
+            nonlocal processed_count
+            chunk_duplicates = []
+            
+            for idx, sms_row in chunk_data.iterrows():
+                sms_phone = self._clean_phone(sms_row.get('Phone', ''))
+                sms_address = self._clean_address(sms_row.get('Address', ''))
+                sms_name = str(sms_row.get('Name', '')).strip().lower()
+                
+                if not sms_phone and not sms_address:
+                    continue
+                
+                # Find matches in historical data
+                phone_matches = []
+                address_matches = []
+                
+                for hist_idx, hist_row in historical_data.iterrows():
+                    hist_phone = self._clean_phone(hist_row.get('Phone', ''))
+                    hist_address = self._clean_address(hist_row.get('Address', ''))
+                    hist_name = str(hist_row.get('Name', '')).strip().lower()
+                    
+                    # Check phone match (must match both phone AND name for phone-based duplicates)
+                    if sms_phone and hist_phone and sms_phone == hist_phone and sms_name and hist_name and sms_name == hist_name:
+                        phone_matches.append({
+                            'historical_index': hist_idx,
+                            'match_type': 'phone',
+                            'match_value': sms_phone,
+                            'historical_data': hist_row.to_dict()
+                        })
+                    
+                    # Check address match
+                    if sms_address and hist_address:
+                        similarity = self._calculate_address_similarity(sms_address, hist_address)
+                        if similarity >= self.similarity_threshold:
+                            address_matches.append({
+                                'historical_index': hist_idx,
+                                'match_type': 'address',
+                                'match_value': hist_address,
+                                'similarity': similarity,
+                                'historical_data': hist_row.to_dict()
+                            })
+                
+                # If we found matches, create duplicate record
+                if phone_matches or address_matches:
+                    duplicate_record = {
+                        'sms_index': idx,
+                        'sms_name': sms_row.get('Name', ''),
+                        'sms_phone': sms_phone,
+                        'sms_address': sms_address,
+                        'sms_book': sms_row.get('Book', ''),
+                        'sms_language': sms_row.get('Language', ''),
+                        'phone_matches': phone_matches,
+                        'address_matches': address_matches
+                    }
+                    chunk_duplicates.append(duplicate_record)
+                
+                # Update progress thread-safely
+                with progress_lock:
+                    processed_count += 1
+                    if progress_callback and processed_count % 10 == 0:  # Update every 10 records
+                        progress_callback(min(processed_count, total_records), total_records)
+            
+            return chunk_duplicates
+        
+        # Execute with ThreadPoolExecutor
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all chunks
+            future_to_chunk = {executor.submit(find_duplicates_for_chunk, chunk): chunk for chunk in sms_chunks}
+            
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_chunk):
+                try:
+                    chunk_results = future.result()
+                    duplicates.extend(chunk_results)
+                except Exception as e:
+                    # Handle any exceptions from individual chunk processing
+                    chunk = future_to_chunk[future]
+                    print(f"Error processing chunk: {e}")
+        
+        # Final progress update
+        if progress_callback:
+            progress_callback(total_records, total_records)
         
         return pd.DataFrame(duplicates)
     

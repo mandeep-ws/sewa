@@ -185,6 +185,24 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         return
     
     
+    # Performance settings
+    st.markdown("#### ⚡ Performance Settings")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        use_multithreading = st.checkbox("Enable Multithreading", value=True, help="Use multiple threads for faster processing")
+    
+    with col2:
+        max_workers = st.slider("Max Workers", min_value=1, max_value=20, value=10, help="Number of parallel threads to use")
+    
+    with col3:
+        api_delay = st.slider("API Delay (seconds)", min_value=0.1, max_value=2.0, value=0.5, step=0.1, help="Delay between API calls to avoid rate limiting")
+    
+    st.info(f"💡 **Tip**: Multithreading can be 5-10x faster for large datasets. Increase API delay if you get rate limit errors.")
+    
+    # Show current settings
+    st.caption(f"⚙️ **Current Settings**: Multithreading: {'ON' if use_multithreading else 'OFF'}, Workers: {max_workers}, API Delay: {api_delay}s")
+    
     # Validation options
     st.markdown("#### 🔍 Validation Options")
     col1, col2, col3 = st.columns(3)
@@ -216,7 +234,9 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         
         validation_results = phone_validator.validate_phones(
             st.session_state.sms_data,
-            progress_callback=update_progress
+            progress_callback=update_progress,
+            use_multithreading=use_multithreading,
+            max_workers=max_workers
         )
         progress_bar.progress(1.0)
         status_text.text("✅ Phone validation completed!")
@@ -224,6 +244,14 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         if 'validation_results' not in st.session_state:
             st.session_state.validation_results = {}
         st.session_state.validation_results['phones'] = validation_results
+        
+        # Auto-export phone validation results
+        ui_components._export_validation_results_to_excel(
+            validation_results, 
+            "phone_validation", 
+            "Phone_Validation_Results"
+        )
+        
         ui_components.show_phone_validation_results(validation_results)
     
     # Address validation
@@ -238,7 +266,10 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         
         address_results = address_validator.validate_addresses(
             st.session_state.sms_data,
-            progress_callback=update_progress
+            progress_callback=update_progress,
+            use_multithreading=use_multithreading,
+            max_workers=max_workers,
+            api_delay=api_delay
         )
         progress_bar.progress(1.0)
         status_text.text("✅ Address validation completed!")
@@ -246,6 +277,14 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         if 'validation_results' not in st.session_state:
             st.session_state.validation_results = {}
         st.session_state.validation_results['addresses'] = address_results
+        
+        # Auto-export address validation results
+        ui_components._export_validation_results_to_excel(
+            address_results, 
+            "address_validation", 
+            "Address_Validation_Results"
+        )
+        
         ui_components.show_address_validation_results(address_results)
     
     # Duplicate detection
@@ -260,12 +299,22 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         
         duplicates = duplicate_detector.find_duplicates(
             st.session_state.sms_data, 
-            progress_callback=update_progress
+            progress_callback=update_progress,
+            use_multithreading=use_multithreading,
+            max_workers=max_workers
         )
         progress_bar.progress(1.0)
         status_text.text("✅ Duplicate detection completed!")
         
         st.session_state.duplicates = duplicates
+        
+        # Auto-export duplicate detection results
+        ui_components._export_validation_results_to_excel(
+            duplicates, 
+            "duplicate_detection", 
+            "Duplicate_Detection_Results"
+        )
+        
         ui_components.show_duplicate_results(duplicates)
     
     # Show validation results if available
@@ -281,7 +330,21 @@ def send_messages_page(message_sender, ui_components):
         st.warning("⚠️ Please upload and validate data first")
         return
     
+    # Performance settings for message sending
+    st.markdown("#### ⚡ Message Sending Performance")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        use_multithreading_messages = st.checkbox("Enable Multithreading for Messages", value=True, help="Use multiple threads for faster message sending")
+    
+    with col2:
+        max_workers_messages = st.slider("Max Workers for Messages", min_value=1, max_value=10, value=5, help="Number of parallel threads for message sending")
+    
+    with col3:
+        st.info(f"💡 **Tip**: Multithreading can significantly speed up message sending")
+    
     # Message sending options
+    st.markdown("#### 📤 Message Sending Options")
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -323,7 +386,9 @@ def send_messages_page(message_sender, ui_components):
             # Run duplicate detection
             duplicates = duplicate_detector.find_duplicates(
                 st.session_state.sms_data, 
-                progress_callback=update_progress
+                progress_callback=update_progress,
+                use_multithreading=use_multithreading,
+                max_workers=max_workers
             )
             progress_bar.progress(1.0)
             status_text.text("✅ Duplicate detection completed!")
@@ -337,7 +402,9 @@ def send_messages_page(message_sender, ui_components):
                 ui_components._send_sms_messages(
                     st.session_state.sms_data,
                     st.session_state.duplicates,
-                    message_sender
+                    message_sender,
+                    use_multithreading=use_multithreading_messages,
+                    max_workers=max_workers_messages
                 )
                 logger.info("✅ SMS sending completed successfully")
             except Exception as e:
@@ -360,7 +427,9 @@ def send_messages_page(message_sender, ui_components):
             # Run duplicate detection
             duplicates = duplicate_detector.find_duplicates(
                 st.session_state.sms_data, 
-                progress_callback=update_progress
+                progress_callback=update_progress,
+                use_multithreading=use_multithreading,
+                max_workers=max_workers
             )
             progress_bar.progress(1.0)
             status_text.text("✅ Duplicate detection completed!")
@@ -377,7 +446,9 @@ def send_messages_page(message_sender, ui_components):
                     ui_components._send_whatsapp_messages(
                         st.session_state.sms_data,
                         st.session_state.duplicates,
-                        message_sender
+                        message_sender,
+                        use_multithreading=use_multithreading_messages,
+                        max_workers=max_workers_messages
                     )
                     logger.info("✅ WhatsApp sending completed successfully")
                 except Exception as e:
@@ -392,7 +463,9 @@ def send_messages_page(message_sender, ui_components):
                     ui_components._send_both_messages(
                         st.session_state.sms_data,
                         st.session_state.duplicates,
-                        message_sender
+                        message_sender,
+                        use_multithreading=use_multithreading_messages,
+                        max_workers=max_workers_messages
                     )
                     logger.info("✅ Both SMS and WhatsApp sending completed successfully")
                 except Exception as e:

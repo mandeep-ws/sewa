@@ -146,6 +146,8 @@ class UIComponents:
                 with col3:
                     st.metric("VoIP", voip_count)
         
+        # Export button removed - files are now auto-exported with timestamps
+        
         # Show detailed results
         with st.expander("📋 Detailed Phone Validation Results"):
             # Filter options
@@ -216,6 +218,26 @@ class UIComponents:
         with col3:
             st.metric("Invalid Addresses", invalid_addresses, delta=f"{invalid_addresses/total_addresses*100:.1f}%")
         
+        # Show error summary if there are errors
+        if invalid_addresses > 0:
+            error_results = address_results[address_results['is_valid'] == False]
+            error_counts = error_results['error'].value_counts()
+            
+            st.markdown("#### ❌ Error Summary")
+            for error_type, count in error_counts.items():
+                st.warning(f"**{error_type}**: {count} addresses")
+            
+            # Show recommendations for common errors
+            st.markdown("#### 💡 Recommendations")
+            if 'API quota exceeded' in error_counts.index:
+                st.info("🔧 **API Quota Exceeded**: Increase the API delay setting and try again later")
+            if 'Temporary API error' in error_counts.index:
+                st.info("🔄 **Temporary API Error**: Try running the validation again with a longer delay")
+            if 'Address not found' in error_counts.index:
+                st.info("📍 **Address Not Found**: Check the address format and spelling")
+            if 'Invalid address format' in error_counts.index:
+                st.info("📝 **Invalid Format**: Ensure addresses include street, city, state, and zip code")
+        
         # Show confidence distribution
         if valid_addresses > 0:
             valid_results = address_results[address_results['is_valid'] == True]
@@ -230,6 +252,8 @@ class UIComponents:
                     labels={'value': 'Confidence Score', 'count': 'Number of Addresses'}
                 )
                 st.plotly_chart(fig, use_container_width=True)
+        
+        # Export button removed - files are now auto-exported with timestamps
         
         # Show detailed results
         with st.expander("📋 Detailed Address Validation Results"):
@@ -311,6 +335,8 @@ class UIComponents:
             title="Duplicate Detection Breakdown"
         )
         st.plotly_chart(fig, use_container_width=True)
+        
+        # Export button removed - files are now auto-exported with timestamps
         
         # Show detailed duplicate results
         with st.expander("📋 Detailed Duplicate Results"):
@@ -1054,7 +1080,7 @@ class UIComponents:
             if 'Phone' in historical_data.columns:
                 phone_completeness = (1 - historical_data['Phone'].isnull().sum() / len(historical_data)) * 100
                 st.metric("Phone Completeness", f"{phone_completeness:.1f}%")
-        
+    
         # Detailed quality analysis
         st.markdown("**Detailed Quality Analysis**")
         
@@ -1092,7 +1118,7 @@ class UIComponents:
             address_completeness = (complete_addresses / len(historical_data)) * 100
             st.info(f"🏠 {address_completeness:.1f}% of addresses appear to be complete (3+ words)")
     
-    def _send_whatsapp_messages(self, sms_data, duplicates, message_sender):
+    def _send_whatsapp_messages(self, sms_data, duplicates, message_sender, use_multithreading=True, max_workers=5):
         """Send WhatsApp messages to all recipients"""
         import pandas as pd
         from datetime import datetime
@@ -1245,7 +1271,7 @@ class UIComponents:
         # Show results
         self._show_sending_results(results, "WhatsApp")
     
-    def _send_sms_messages(self, sms_data, duplicates, message_sender):
+    def _send_sms_messages(self, sms_data, duplicates, message_sender, use_multithreading=True, max_workers=5):
         """Send SMS messages to all recipients"""
         import pandas as pd
         from datetime import datetime
@@ -1254,7 +1280,22 @@ class UIComponents:
         logger.info(f"🚀 Starting batch SMS sending for {len(sms_data)} recipients")
         logger.info(f"🚀 SMS data type: {type(sms_data)}")
         logger.info(f"🚀 Message sender type: {type(message_sender)}")
+        logger.info(f"🚀 Multithreading: {use_multithreading}, Max workers: {max_workers}")
         st.markdown("### 📱 Sending SMS Messages...")
+        
+        if use_multithreading:
+            return self._send_sms_messages_multithreaded(sms_data, duplicates, message_sender, max_workers)
+        else:
+            return self._send_sms_messages_sequential(sms_data, duplicates, message_sender)
+    
+    def _send_sms_messages_sequential(self, sms_data, duplicates, message_sender):
+        """Original sequential SMS sending"""
+        import pandas as pd
+        from datetime import datetime
+        
+        logger.info(f"🚀 _send_sms_messages_sequential function called!")
+        logger.info(f"🚀 Starting sequential SMS sending for {len(sms_data)} recipients")
+        st.markdown("### 📱 Sending SMS Messages (Sequential)...")
         
         # Note: Using file-based duplicate prevention (no memory storage)
         logger.info("🔍 Using file-based duplicate prevention")
@@ -1415,7 +1456,177 @@ class UIComponents:
         # Show results
         self._show_sending_results(results, "SMS")
     
-    def _send_both_messages(self, sms_data, duplicates, message_sender):
+    def _send_sms_messages_multithreaded(self, sms_data, duplicates, message_sender, max_workers=5):
+        """Multithreaded SMS sending for better performance"""
+        import concurrent.futures
+        import threading
+        import pandas as pd
+        from datetime import datetime
+        
+        logger.info(f"🚀 _send_sms_messages_multithreaded function called!")
+        logger.info(f"🚀 Starting multithreaded SMS sending for {len(sms_data)} recipients with {max_workers} workers")
+        st.markdown("### 📱 Sending SMS Messages (Multithreaded)...")
+        
+        # Prepare data for multithreading
+        sms_data_list = []
+        for idx, row in sms_data.iterrows():
+            sms_data_list.append({
+                'index': idx,
+                'row': row.to_dict()
+            })
+        
+        # Thread-safe progress tracking
+        progress_lock = threading.Lock()
+        processed_count = 0
+        results = []
+        
+        def send_single_sms(sms_item):
+            nonlocal processed_count
+            
+            idx = sms_item['index']
+            row = sms_item['row']
+            
+            logger.info(f"📱 Processing SMS for {row.get('Name', 'Unknown')} - Phone: {row.get('Phone', 'Unknown')}")
+            
+            # Skip if name or phone is empty
+            if not row.get('Name') or not row.get('Phone'):
+                logger.info(f"⏭️ Skipping {row.get('Name', 'Unknown')} - empty name or phone")
+                result = {
+                    'success': False,
+                    'error': 'Empty name or phone number',
+                    'name': row.get('Name', ''),
+                    'phone': row.get('Phone', ''),
+                    'skipped': True,
+                    'record_index': idx
+                }
+                return result
+            
+            # Check if this person has already been sent a message for the same book
+            book = row.get('Book', '')
+            if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                book = 'GG'
+            
+            if self._was_message_already_sent(row['Name'], row['Phone'], book, 'SMS'):
+                logger.info(f"⏭️ Skipping {row['Name']} - SMS message already sent for this book previously")
+                result = {
+                    'success': False,
+                    'error': 'SMS message already sent for this book previously',
+                    'name': row['Name'],
+                    'phone': row['Phone'],
+                    'skipped': True,
+                    'record_index': idx
+                }
+                return result
+            
+            # Generate message based on duplicate status
+            is_historical_customer = self._is_historical_customer(row['Name'], row['Phone'])
+            
+            if is_historical_customer:
+                logger.info(f"🔍 Historical customer detected for SMS: {row['Name']} - duplicates available: {duplicates is not None}")
+                
+                if duplicates is not None and not duplicates.empty:
+                    duplicate_record = duplicates[duplicates['sms_index'] == idx]
+                    if not duplicate_record.empty:
+                        message = message_sender.get_duplicate_message_template(duplicate_record.iloc[0])
+                        logger.info(f"📝 Using duplicate message template for historical customer: {row['Name']}")
+                    else:
+                        # Fallback to new customer template
+                        book = row.get('Book', '')
+                        language = row.get('Language', '')
+                        if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                            book = 'GG'
+                        if pd.isna(language) or language == '' or str(language).lower() == 'nan':
+                            language = 'English'
+                        
+                        corrected_row = row.copy()
+                        corrected_row['Book'] = book
+                        corrected_row['Language'] = language
+                        
+                        has_book_language = bool(book and language)
+                        message = message_sender.get_new_customer_message_template(corrected_row, has_book_language)
+                        logger.info(f"📝 Using new customer template for historical customer (no duplicate record): {row['Name']} - Book: {book}, Language: {language}")
+                else:
+                    # No duplicates data, use new customer template
+                    logger.info(f"❌ PROBLEM: No duplicates data available for historical customer: {row['Name']}")
+                    book = row.get('Book', '')
+                    language = row.get('Language', '')
+                    if pd.isna(book) or book == '' or str(book).lower() == 'nan':
+                        book = 'GG'
+                    if pd.isna(language) or language == '' or str(language).lower() == 'nan':
+                        language = 'English'
+                    
+                    corrected_row = row.copy()
+                    corrected_row['Book'] = book
+                    corrected_row['Language'] = language
+                    
+                    has_book_language = bool(book and language)
+                    message = message_sender.get_new_customer_message_template(corrected_row, has_book_language)
+                    logger.info(f"📝 Using new customer template for historical customer (no duplicates data): {row['Name']} - Book: {book}, Language: {language}")
+            else:
+                # New customer, use new customer template
+                has_book_language = bool(row.get('Book') and row.get('Language'))
+                message = message_sender.get_new_customer_message_template(row, has_book_language)
+                logger.info(f"📝 Using new customer template for new customer: {row['Name']}")
+            
+            logger.info(f"📝 Generated SMS message for {row['Name']}: {message[:100]}...")
+            
+            # Send SMS message
+            logger.info(f"🚀 About to call message_sender.send_sms_message for {row['Name']}")
+            result = message_sender.send_sms_message(row['Phone'], message)
+            logger.info(f"🚀 SMS send result received: {result}")
+            result.update({'name': row['Name'], 'phone': row['Phone'], 'record_index': idx})
+            
+            # Record failed transactions (invalid phone numbers)
+            if not result.get('success') and 'phone' in result.get('error', '').lower():
+                self._record_failed_transaction(row, result.get('error', 'Unknown error'))
+            
+            logger.info(f"📊 SMS result for {row['Name']}: {result}")
+            
+            # Update progress thread-safely
+            with progress_lock:
+                processed_count += 1
+            
+            return result
+        
+        # Execute with ThreadPoolExecutor
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_data = {executor.submit(send_single_sms, sms_item): sms_item for sms_item in sms_data_list}
+            
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_data):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    # Handle any exceptions from individual SMS sending
+                    sms_item = future_to_data[future]
+                    results.append({
+                        'success': False,
+                        'error': f'SMS sending error: {str(e)}',
+                        'name': sms_item['row'].get('Name', ''),
+                        'phone': sms_item['row'].get('Phone', ''),
+                        'record_index': sms_item['index']
+                    })
+        
+        # Count results
+        successful = [r for r in results if r.get('success')]
+        skipped = [r for r in results if r.get('skipped')]
+        failed = [r for r in results if not r.get('success') and not r.get('skipped')]
+        
+        successful_count = len(successful)
+        skipped_count = len(skipped)
+        failed_count = len(failed)
+        
+        logger.info(f"✅ Batch SMS sending completed. Results: {len(results)} total, {successful_count} successful, {skipped_count} skipped, {failed_count} failed")
+        
+        # Create new records file with sending results
+        self._create_new_records_file(results, "SMS")
+        
+        # Show results
+        self._show_sending_results(results, "SMS")
+    
+    def _send_both_messages(self, sms_data, duplicates, message_sender, use_multithreading=True, max_workers=5):
         """Send both WhatsApp and SMS messages to all recipients"""
         import pandas as pd
         from datetime import datetime
@@ -1572,6 +1783,49 @@ class UIComponents:
         # Show results
         self._show_sending_results(results, "Both WhatsApp and SMS")
     
+    def _export_validation_results_to_excel(self, data, validation_type, filename_prefix):
+        """Export validation results to Excel file with timestamp"""
+        try:
+            import pandas as pd
+            from datetime import datetime
+            import os
+            
+            # Create filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{filename_prefix}_{validation_type}_{timestamp}.xlsx"
+            
+            # Convert data to DataFrame if it's not already
+            if isinstance(data, pd.DataFrame):
+                df = data.copy()
+            else:
+                df = pd.DataFrame(data)
+            
+            # Add timestamp column
+            df['Export_Date'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Save to Excel
+            df.to_excel(filename, index=False)
+            
+            # Verify file was created
+            if os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+                
+                st.success(f"✅ {validation_type.title()} results exported to: **{filename}**")
+                st.info(f"📁 File saved in: {os.path.abspath(filename)}")
+                st.info(f"📊 File size: {file_size} bytes")
+                st.info(f"📋 Records exported: {len(df)}")
+                
+                return filename
+            else:
+                st.error(f"❌ File was not created: {filename}")
+                return None
+            
+        except Exception as e:
+            st.error(f"❌ Error exporting {validation_type} results: {e}")
+            import traceback
+            st.error(f"Error details: {traceback.format_exc()}")
+            return None
+    
     def _show_sending_results(self, results, message_type):
         """Show results of message sending"""
         st.markdown(f"### 📊 {message_type} Sending Results")
@@ -1653,48 +1907,48 @@ class UIComponents:
                             sms_record = sms_df[sms_mask].iloc[0]
                         else:
                             continue
-                    
-                    # Create new record with all necessary fields
-                    new_record = {
-                        # Core identification fields
-                        'Name': sms_record.get('Name', ''),
-                        'Phone': sms_record.get('Phone', ''),
-                        'Address': sms_record.get('Address', ''),
                         
-                        # Book and language info with defaults
-                        'Book': 'GG' if pd.isna(sms_record.get('Book', '')) or sms_record.get('Book', '') == '' or str(sms_record.get('Book', '')).lower() == 'nan' else sms_record.get('Book', ''),
-                        'Language': 'English' if pd.isna(sms_record.get('Language', '')) or sms_record.get('Language', '') == '' or str(sms_record.get('Language', '')).lower() == 'nan' else sms_record.get('Language', ''),
+                        # Create new record with all necessary fields
+                        new_record = {
+                            # Core identification fields
+                            'Name': sms_record.get('Name', ''),
+                            'Phone': sms_record.get('Phone', ''),
+                            'Address': sms_record.get('Address', ''),
+                            
+                            # Book and language info with defaults
+                            'Book': 'GG' if pd.isna(sms_record.get('Book', '')) or sms_record.get('Book', '') == '' or str(sms_record.get('Book', '')).lower() == 'nan' else sms_record.get('Book', ''),
+                            'Language': 'English' if pd.isna(sms_record.get('Language', '')) or sms_record.get('Language', '') == '' or str(sms_record.get('Language', '')).lower() == 'nan' else sms_record.get('Language', ''),
+                            
+                            # Message sending details
+                            'Message_Type': message_type,
+                            'Sent_Date': current_time,
+                            'Status': "Success",
+                            'Message_ID': result.get('message_sid', ''),
+                            'Error_Message': '',  # No error message for successful messages
+                            
+                            # Additional fields from SMS data
+                            'Email': sms_record.get('Email', ''),
+                            'City': sms_record.get('City', ''),
+                            'State': sms_record.get('State', ''),
+                            'Zip_Code': sms_record.get('Zip_Code', ''),
+                            'Country': sms_record.get('Country', ''),
+                            
+                            # Validation results (if available)
+                            'Phone_Valid': sms_record.get('phone_valid', ''),
+                            'Address_Valid': sms_record.get('address_valid', ''),
+                            'Carrier_Info': sms_record.get('carrier_info', ''),
+                            
+                            # Duplicate status (if available)
+                            'Is_Duplicate': sms_record.get('is_duplicate', False),
+                            'Duplicate_Reason': sms_record.get('duplicate_reason', ''),
+                            
+                            # Campaign tracking
+                            'Campaign_Date': current_time.split(' ')[0],  # Just the date part
+                            'Campaign_Type': f"{message_type}_Campaign"
+                        }
                         
-                        # Message sending details
-                        'Message_Type': message_type,
-                        'Sent_Date': current_time,
-                        'Status': "Success",
-                        'Message_ID': result.get('message_sid', ''),
-                        'Error_Message': '',  # No error message for successful messages
-                        
-                        # Additional fields from SMS data
-                        'Email': sms_record.get('Email', ''),
-                        'City': sms_record.get('City', ''),
-                        'State': sms_record.get('State', ''),
-                        'Zip_Code': sms_record.get('Zip_Code', ''),
-                        'Country': sms_record.get('Country', ''),
-                        
-                        # Validation results (if available)
-                        'Phone_Valid': sms_record.get('phone_valid', ''),
-                        'Address_Valid': sms_record.get('address_valid', ''),
-                        'Carrier_Info': sms_record.get('carrier_info', ''),
-                        
-                        # Duplicate status (if available)
-                        'Is_Duplicate': sms_record.get('is_duplicate', False),
-                        'Duplicate_Reason': sms_record.get('duplicate_reason', ''),
-                        
-                        # Campaign tracking
-                        'Campaign_Date': current_time.split(' ')[0],  # Just the date part
-                        'Campaign_Type': f"{message_type}_Campaign"
-                    }
-                    
-                    new_records.append(new_record)
-                    logger.info(f"📝 Created new record for {name} - Status: Success")
+                        new_records.append(new_record)
+                        logger.info(f"📝 Created new record for {name} - Status: Success")
             
             if new_records:
                 # Create DataFrame from new records

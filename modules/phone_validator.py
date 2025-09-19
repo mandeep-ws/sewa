@@ -14,8 +14,15 @@ class PhoneValidator:
     def __init__(self):
         self.carrier_cache = {}
     
-    def validate_phones(self, df, progress_callback=None):
+    def validate_phones(self, df, progress_callback=None, use_multithreading=True, max_workers=10):
         """Validate phone numbers and get carrier information"""
+        if use_multithreading:
+            return self._validate_phones_multithreaded(df, progress_callback, max_workers)
+        else:
+            return self._validate_phones_sequential(df, progress_callback)
+    
+    def _validate_phones_sequential(self, df, progress_callback=None):
+        """Original sequential phone validation"""
         results = []
         
         total_phones = len(df[df['Phone'].notna() & (df['Phone'] != '')])
@@ -78,6 +85,117 @@ class PhoneValidator:
         
         if progress_callback:
             progress_callback(min(processed, total_phones), total_phones)
+        
+        return pd.DataFrame(results)
+    
+    def _validate_phones_multithreaded(self, df, progress_callback=None, max_workers=10):
+        """Multithreaded phone validation for better performance"""
+        import concurrent.futures
+        import threading
+        from queue import Queue
+        
+        # Prepare data for multithreading
+        phone_data = []
+        for idx, row in df.iterrows():
+            phone_data.append({
+                'index': idx,
+                'name': row.get('Name', ''),
+                'phone': str(row['Phone']) if pd.notna(row['Phone']) else ''
+            })
+        
+        # Filter out empty phones
+        phone_data = [data for data in phone_data if data['phone'] and data['phone'] != 'nan']
+        total_phones = len(phone_data)
+        
+        if total_phones == 0:
+            return pd.DataFrame()
+        
+        # Thread-safe progress tracking
+        progress_lock = threading.Lock()
+        processed_count = 0
+        
+        def validate_single_phone(phone_data_item):
+            nonlocal processed_count
+            
+            idx = phone_data_item['index']
+            name = phone_data_item['name']
+            phone = phone_data_item['phone']
+            
+            result = {
+                'index': idx,
+                'name': name,
+                'original_phone': phone,
+                'formatted_phone': '',
+                'is_valid': False,
+                'carrier': '',
+                'location': '',
+                'country': '',
+                'error': ''
+            }
+            
+            try:
+                # Parse phone number
+                parsed = phonenumbers.parse(phone, "US")
+                
+                if phonenumbers.is_valid_number(parsed):
+                    result['is_valid'] = True
+                    result['formatted_phone'] = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+                    
+                    # Get detailed carrier information
+                    carrier_info = self._get_detailed_carrier_info(parsed)
+                    result.update(carrier_info)
+                    
+                    # Get location information
+                    location = geocoder.description_for_number(parsed, "en")
+                    result['location'] = location if location else 'Unknown'
+                    
+                    # Get country
+                    country = geocoder.country_name_for_number(parsed, "en")
+                    result['country'] = country if country else 'Unknown'
+                    
+                else:
+                    result['error'] = 'Invalid phone number format'
+                    
+            except Exception as e:
+                result['error'] = str(e)
+            
+            # Update progress thread-safely
+            with progress_lock:
+                processed_count += 1
+                if progress_callback and processed_count % 5 == 0:  # Update every 5 phones
+                    progress_callback(min(processed_count, total_phones), total_phones)
+            
+            return result
+        
+        # Execute with ThreadPoolExecutor
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_data = {executor.submit(validate_single_phone, data): data for data in phone_data}
+            
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_data):
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    # Handle any exceptions from individual phone validations
+                    data = future_to_data[future]
+                    results.append({
+                        'index': data['index'],
+                        'name': data['name'],
+                        'original_phone': data['phone'],
+                        'formatted_phone': '',
+                        'is_valid': False,
+                        'carrier': '',
+                        'location': '',
+                        'country': '',
+                        'error': f'Validation error: {str(e)}'
+                    })
+        
+        # Final progress update
+        if progress_callback:
+            progress_callback(total_phones, total_phones)
         
         return pd.DataFrame(results)
     
