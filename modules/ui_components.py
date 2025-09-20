@@ -1784,15 +1784,23 @@ class UIComponents:
         self._show_sending_results(results, "Both WhatsApp and SMS")
     
     def _export_validation_results_to_excel(self, data, validation_type, filename_prefix):
-        """Export validation results to Excel file with timestamp"""
+        """Export validation results to Excel file with timestamp in appropriate directory"""
         try:
             import pandas as pd
             from datetime import datetime
             import os
             
+            # Create exports directory structure
+            exports_dir = "exports"
+            validation_dir = os.path.join(exports_dir, validation_type)
+            
+            # Ensure directory exists
+            os.makedirs(validation_dir, exist_ok=True)
+            
             # Create filename with timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{filename_prefix}_{validation_type}_{timestamp}.xlsx"
+            filename = f"{filename_prefix}_{timestamp}.xlsx"
+            filepath = os.path.join(validation_dir, filename)
             
             # Convert data to DataFrame if it's not already
             if isinstance(data, pd.DataFrame):
@@ -1804,20 +1812,20 @@ class UIComponents:
             df['Export_Date'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             # Save to Excel
-            df.to_excel(filename, index=False)
+            df.to_excel(filepath, index=False)
             
             # Verify file was created
-            if os.path.exists(filename):
-                file_size = os.path.getsize(filename)
+            if os.path.exists(filepath):
+                file_size = os.path.getsize(filepath)
                 
-                st.success(f"✅ {validation_type.title()} results exported to: **{filename}**")
-                st.info(f"📁 File saved in: {os.path.abspath(filename)}")
+                st.success(f"✅ {validation_type.replace('_', ' ').title()} results exported to: **{filename}**")
+                st.info(f"📁 File saved in: {os.path.abspath(filepath)}")
                 st.info(f"📊 File size: {file_size} bytes")
                 st.info(f"📋 Records exported: {len(df)}")
                 
-                return filename
+                return filepath
             else:
-                st.error(f"❌ File was not created: {filename}")
+                st.error(f"❌ File was not created: {filepath}")
                 return None
             
         except Exception as e:
