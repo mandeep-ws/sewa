@@ -92,7 +92,12 @@ class UIComponents:
         valid_phones = len(validation_results[validation_results['is_valid'] == True])
         invalid_phones = total_phones - valid_phones
         
-        col1, col2, col3 = st.columns(3)
+        # Calculate message blocking statistics
+        cannot_sms = len(validation_results[validation_results.get('can_receive_sms', True) == False])
+        cannot_whatsapp = len(validation_results[validation_results.get('can_receive_whatsapp', True) == False])
+        blocked_messages = max(cannot_sms, cannot_whatsapp)  # Conservative estimate
+        
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("Total Phones", total_phones)
@@ -102,6 +107,21 @@ class UIComponents:
         
         with col3:
             st.metric("Invalid Phones", invalid_phones, delta=f"{invalid_phones/total_phones*100:.1f}%")
+        
+        with col4:
+            st.metric("Messages Blocked", blocked_messages, help="Messages blocked due to VoIP/landline numbers")
+        
+        # Show cost savings information
+        if blocked_messages > 0:
+            st.markdown("#### 💰 Cost Savings")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.info(f"🚫 **{blocked_messages} messages blocked** from VoIP/landline numbers")
+            with col2:
+                # Estimate cost savings (assuming $0.0075 per SMS and $0.005 per WhatsApp)
+                estimated_sms_savings = blocked_messages * 0.0075
+                estimated_whatsapp_savings = blocked_messages * 0.005
+                st.info(f"💵 **Estimated savings**: ${estimated_sms_savings:.2f} (SMS) / ${estimated_whatsapp_savings:.2f} (WhatsApp)")
         
         # Show carrier distribution
         if valid_phones > 0:
@@ -159,6 +179,52 @@ class UIComponents:
                     st.metric("Can Receive SMS", can_sms_count, help="Mobile numbers that can receive SMS")
                 with col2:
                     st.metric("Can Receive WhatsApp", can_whatsapp_count, help="Mobile numbers that can receive WhatsApp")
+                
+                # Show detection method breakdown
+                if 'detection_method' in valid_results.columns:
+                    detection_counts = valid_results['detection_method'].value_counts()
+                    if not detection_counts.empty:
+                        st.markdown("#### 🔍 Detection Method Summary")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Twilio Lookup API", detection_counts.get('Twilio Lookup API', 0), help="Real-time carrier data from Twilio")
+                        with col2:
+                            st.metric("Enhanced phonenumbers", detection_counts.get('Enhanced phonenumbers', 0), help="Fallback detection using phonenumbers library")
+                
+                # Show confidence levels
+                if 'confidence' in valid_results.columns:
+                    # Convert confidence to numeric, handling string percentages
+                    confidence_series = valid_results['confidence'].copy()
+                    
+                    # Convert string percentages to numeric (e.g., "95%" -> 95)
+                    def convert_confidence(conf):
+                        if pd.isna(conf):
+                            return 0
+                        if isinstance(conf, (int, float)):
+                            return float(conf)
+                        if isinstance(conf, str):
+                            # Remove % sign and convert to float
+                            conf_clean = conf.replace('%', '').strip()
+                            try:
+                                return float(conf_clean)
+                            except ValueError:
+                                return 0
+                        return 0
+                    
+                    confidence_numeric = confidence_series.apply(convert_confidence)
+                    
+                    high_confidence = len(confidence_numeric[confidence_numeric >= 90])
+                    medium_confidence = len(confidence_numeric[(confidence_numeric >= 70) & (confidence_numeric < 90)])
+                    low_confidence = len(confidence_numeric[confidence_numeric < 70])
+                    
+                    st.markdown("#### 📊 Detection Confidence Summary")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("High Confidence (90%+)", high_confidence, help="Very reliable detection results")
+                    with col2:
+                        st.metric("Medium Confidence (70-89%)", medium_confidence, help="Good detection results")
+                    with col3:
+                        st.metric("Low Confidence (<70%)", low_confidence, help="Less reliable detection results")
         
         # Show detailed results
         with st.expander("📋 Detailed Phone Validation Results"):
@@ -215,6 +281,43 @@ class UIComponents:
                     title="Phone Number Types"
                 )
                 st.plotly_chart(fig, use_container_width=True)
+            
+            # Show Twilio API information for high-confidence results
+            # Convert confidence to numeric for comparison
+            confidence_series = filtered_results.get('confidence', pd.Series([0] * len(filtered_results)))
+            confidence_numeric = confidence_series.apply(lambda x: float(str(x).replace('%', '')) if pd.notna(x) and str(x).replace('%', '').replace('.', '').isdigit() else 0)
+            
+            twilio_results = filtered_results[
+                (filtered_results.get('detection_method', '') == 'Twilio Lookup API') & 
+                (confidence_numeric >= 90)
+            ]
+            
+            if not twilio_results.empty:
+                st.markdown("#### 🔍 Detailed Twilio API Information")
+                st.info(f"📡 Showing detailed carrier information for {len(twilio_results)} numbers with high-confidence Twilio API results")
+                
+                # Show detailed Twilio information
+                twilio_display_columns = [
+                    'name', 'original_phone', 'carrier', 'carrier_type', 'line_type', 
+                    'can_receive_sms', 'can_receive_whatsapp', 'confidence', 'error'
+                ]
+                
+                available_twilio_columns = [col for col in twilio_display_columns if col in twilio_results.columns]
+                self.safe_display_dataframe(twilio_results[available_twilio_columns], max_rows=20)
+                
+                # Show carrier distribution for Twilio results
+                if 'carrier' in twilio_results.columns:
+                    twilio_carrier_counts = twilio_results['carrier'].value_counts()
+                    if not twilio_carrier_counts.empty:
+                        st.markdown("#### 📊 Twilio Carrier Distribution")
+                        fig = px.bar(
+                            x=twilio_carrier_counts.values,
+                            y=twilio_carrier_counts.index,
+                            orientation='h',
+                            title="Carriers (Twilio API Results)"
+                        )
+                        fig.update_layout(yaxis={'categoryorder':'total ascending'})
+                        st.plotly_chart(fig, use_container_width=True)
     
     def show_address_validation_results(self, address_results):
         """Display address validation results"""

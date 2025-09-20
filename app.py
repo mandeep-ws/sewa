@@ -211,8 +211,8 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         st.markdown("#### 📞 Phone Validator Options")
         phone_validator_option = st.selectbox(
             "Choose phone validator:",
-            ["Basic Validator", "Twilio Lookup API (Recommended)"],
-            help="Twilio Lookup API provides more accurate carrier and line type detection"
+            ["Twilio Lookup API (Recommended)", "Basic Validator"],
+            help="Twilio Lookup API provides real-time carrier information, line type detection, and message capability assessment"
         )
         
         # Multithreading options
@@ -242,7 +242,9 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         else:
             validation_results = phone_validator.validate_phones(
                 st.session_state.sms_data,
-                progress_callback=update_progress
+                progress_callback=update_progress,
+                use_multithreading=use_multithreading,
+                max_workers=max_workers
             )
         
         progress_bar.progress(1.0)
