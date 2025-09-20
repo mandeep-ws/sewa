@@ -179,25 +179,6 @@ class MessageSender:
                 'status': 'failed'
             }
     
-    def send_both_messages(self, phone_number, message):
-        """Send both WhatsApp and SMS messages"""
-        results = {
-            'whatsapp': self.send_whatsapp_message(phone_number, message),
-            'sms': self.send_sms_message(phone_number, message)
-        }
-        
-        # Determine overall success
-        whatsapp_success = results['whatsapp']['success']
-        sms_success = results['sms']['success']
-        
-        if whatsapp_success or sms_success:
-            results['overall_success'] = True
-            results['status'] = 'partial' if not (whatsapp_success and sms_success) else 'complete'
-        else:
-            results['overall_success'] = False
-            results['status'] = 'failed'
-        
-        return results
     
     def batch_send_whatsapp(self, recipients_data):
         """Send WhatsApp messages to multiple recipients"""
@@ -265,38 +246,6 @@ class MessageSender:
         
         return results
     
-    def batch_send_both(self, recipients_data):
-        """Send both WhatsApp and SMS to multiple recipients"""
-        results = []
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for idx, recipient in enumerate(recipients_data):
-            progress = (idx + 1) / len(recipients_data)
-            progress_bar.progress(progress)
-            status_text.text(f"Sending messages to {recipient['name']} ({idx + 1}/{len(recipients_data)})")
-            
-            result = self.send_both_messages(
-                recipient['phone'],
-                recipient['message']
-            )
-            
-            result.update({
-                'name': recipient['name'],
-                'phone': recipient['phone'],
-                'type': 'both'
-            })
-            
-            results.append(result)
-            
-            # Add delay to respect rate limits
-            time.sleep(2)  # Longer delay for both messages
-        
-        progress_bar.progress(1.0)
-        status_text.text("Message sending complete!")
-        
-        return results
     
     def generate_whatsapp_link(self, phone_number, message):
         """Generate WhatsApp web link"""
@@ -371,9 +320,39 @@ class MessageSender:
         if not all_matches:
             return None
         
-        # Sort by date if available
+        # Sort by date (most recent first) - same logic as duplicate_detector.py
+        def get_sent_date(match):
+            try:
+                from datetime import datetime
+                sent_date = match.get('historical_data', {}).get('Sent_Date', '')
+                if sent_date and str(sent_date) != 'nan':
+                    if isinstance(sent_date, str):
+                        # Try to parse the date string
+                        try:
+                            return datetime.strptime(sent_date, '%Y-%m-%d %H:%M:%S')
+                        except ValueError:
+                            try:
+                                return datetime.strptime(sent_date, '%Y-%m-%d')
+                            except ValueError:
+                                return datetime.min
+                    else:
+                        return sent_date
+                else:
+                    return datetime.min
+            except Exception as e:
+                return datetime.min
+        
+        # Sort by date (most recent first)
+        all_matches.sort(key=get_sent_date, reverse=True)
         most_recent_match = all_matches[0]
         historical_record = most_recent_match.get('historical_data', {})
+        
+        # Debug logging to see what historical record is being used
+        logger.info(f"🔍 DEBUG: Found {len(all_matches)} historical matches")
+        for i, match in enumerate(all_matches):
+            hist_data = match.get('historical_data', {})
+            logger.info(f"🔍 DEBUG: Match {i}: Book={hist_data.get('Book', 'N/A')}, Date={hist_data.get('Sent_Date', 'N/A')}")
+        logger.info(f"🔍 DEBUG: Using most recent match: Book={historical_record.get('Book', 'N/A')}, Date={historical_record.get('Sent_Date', 'N/A')}")
         
         # Get book name and language from current SMS request
         current_book_code = duplicate_record.get('sms_book', '')

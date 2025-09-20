@@ -224,6 +224,14 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         if 'validation_results' not in st.session_state:
             st.session_state.validation_results = {}
         st.session_state.validation_results['phones'] = validation_results
+        
+        # Auto-export phone validation results
+        ui_components._export_validation_results_to_excel(
+            validation_results, 
+            "phone_validation", 
+            "Phone_Validation_Results"
+        )
+        
         ui_components.show_phone_validation_results(validation_results)
     
     # Address validation
@@ -246,6 +254,14 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         if 'validation_results' not in st.session_state:
             st.session_state.validation_results = {}
         st.session_state.validation_results['addresses'] = address_results
+        
+        # Auto-export address validation results
+        ui_components._export_validation_results_to_excel(
+            address_results, 
+            "address_validation", 
+            "Address_Validation_Results"
+        )
+        
         ui_components.show_address_validation_results(address_results)
     
     # Duplicate detection
@@ -266,6 +282,14 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
         status_text.text("✅ Duplicate detection completed!")
         
         st.session_state.duplicates = duplicates
+        
+        # Auto-export duplicate detection results
+        ui_components._export_validation_results_to_excel(
+            duplicates, 
+            "duplicate_detection", 
+            "Duplicate_Detection_Results"
+        )
+        
         ui_components.show_duplicate_results(duplicates)
     
     # Show validation results if available
@@ -282,7 +306,7 @@ def send_messages_page(message_sender, ui_components):
         return
     
     # Message sending options
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     
     with col1:
         send_whatsapp = st.button("💬 Send WhatsApp Only", type="primary")
@@ -290,16 +314,13 @@ def send_messages_page(message_sender, ui_components):
     with col2:
         send_sms = st.button("📱 Send SMS Only", type="primary")
     
-    with col3:
-        send_both = st.button("🔄 Send Both", type="primary")
-    
     # Show pending messages
     if st.session_state.processed_data is not None:
         ui_components.show_pending_messages(st.session_state.processed_data)
     
     # Message sending logic
-    if send_whatsapp or send_sms or send_both:
-        logger.info(f"🔘 Send messages button clicked! WhatsApp: {send_whatsapp}, SMS: {send_sms}, Both: {send_both}")
+    if send_whatsapp or send_sms:
+        logger.info(f"🔘 Send messages button clicked! WhatsApp: {send_whatsapp}, SMS: {send_sms}")
         logger.info(f"📊 SMS data available: {st.session_state.sms_data is not None}")
         logger.info(f"📊 Duplicates available: {st.session_state.duplicates is not None}")
         
@@ -384,20 +405,6 @@ def send_messages_page(message_sender, ui_components):
                     logger.error(f"❌ Error sending WhatsApp messages: {e}")
                     st.error(f"Error sending WhatsApp messages: {e}")
             
-            # Handle Both sending directly
-            if send_both:
-                logger.info("🔘 Both button clicked - sending both SMS and WhatsApp directly")
-                st.success("🚀 Starting Both SMS and WhatsApp sending...")
-                try:
-                    ui_components._send_both_messages(
-                        st.session_state.sms_data,
-                        st.session_state.duplicates,
-                        message_sender
-                    )
-                    logger.info("✅ Both SMS and WhatsApp sending completed successfully")
-                except Exception as e:
-                    logger.error(f"❌ Error sending both messages: {e}")
-                    st.error(f"Error sending both messages: {e}")
 
 def analytics_page(ui_components):
     """Show analytics and reports"""
