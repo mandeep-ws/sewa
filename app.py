@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Import our custom modules
 from modules.data_processor import DataProcessor
 from modules.phone_validator import PhoneValidator
+from modules.twilio_phone_validator import TwilioPhoneValidator
 from modules.address_validator import AddressValidator
 from modules.duplicate_detector import DuplicateDetector
 from modules.message_sender import MessageSender
@@ -206,6 +207,21 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
     
     # Phone validation
     if validate_phones:
+        # Phone validation options
+        st.markdown("#### 📞 Phone Validator Options")
+        phone_validator_option = st.selectbox(
+            "Choose phone validator:",
+            ["Basic Validator", "Twilio Lookup API (Recommended)"],
+            help="Twilio Lookup API provides more accurate carrier and line type detection"
+        )
+        
+        # Multithreading options
+        col1, col2 = st.columns(2)
+        with col1:
+            use_multithreading = st.checkbox("Use Multithreading", value=True, help="Enable parallel processing for faster validation")
+        with col2:
+            max_workers = st.slider("Max Workers", min_value=1, max_value=10, value=3, help="Number of parallel threads (lower for Twilio API rate limits)")
+        
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -214,10 +230,21 @@ def validate_data_page(phone_validator, address_validator, duplicate_detector, u
             progress_bar.progress(progress)
             status_text.text(f"Validating {current}/{total} phone numbers...")
         
-        validation_results = phone_validator.validate_phones(
-            st.session_state.sms_data,
-            progress_callback=update_progress
-        )
+        # Choose validator based on selection
+        if phone_validator_option == "Twilio Lookup API (Recommended)":
+            twilio_validator = TwilioPhoneValidator()
+            validation_results = twilio_validator.validate_phones(
+                st.session_state.sms_data,
+                progress_callback=update_progress,
+                use_multithreading=use_multithreading,
+                max_workers=max_workers
+            )
+        else:
+            validation_results = phone_validator.validate_phones(
+                st.session_state.sms_data,
+                progress_callback=update_progress
+            )
+        
         progress_bar.progress(1.0)
         status_text.text("✅ Phone validation completed!")
         

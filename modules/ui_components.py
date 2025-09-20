@@ -136,22 +136,36 @@ class UIComponents:
                 mobile_count = valid_results['is_mobile'].sum()
                 landline_count = valid_results['is_landline'].sum()
                 voip_count = valid_results.get('is_voip', pd.Series([False] * len(valid_results))).sum()
+                toll_free_count = valid_results.get('is_toll_free', pd.Series([False] * len(valid_results))).sum()
+                
+                # Message capability summary
+                can_sms_count = valid_results.get('can_receive_sms', pd.Series([False] * len(valid_results))).sum()
+                can_whatsapp_count = valid_results.get('can_receive_whatsapp', pd.Series([False] * len(valid_results))).sum()
                 
                 st.markdown("#### 📊 Phone Type Summary")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Mobile", mobile_count)
                 with col2:
                     st.metric("Landline", landline_count)
                 with col3:
                     st.metric("VoIP", voip_count)
+                with col4:
+                    st.metric("Toll-Free", toll_free_count)
+                
+                st.markdown("#### 📱 Message Capability Summary")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Can Receive SMS", can_sms_count, help="Mobile numbers that can receive SMS")
+                with col2:
+                    st.metric("Can Receive WhatsApp", can_whatsapp_count, help="Mobile numbers that can receive WhatsApp")
         
         # Show detailed results
         with st.expander("📋 Detailed Phone Validation Results"):
             # Filter options
             filter_option = st.selectbox(
                 "Filter results:",
-                ["All", "Valid Only", "Invalid Only", "With Errors", "Mobile Only", "Landline Only", "VoIP Only"]
+                ["All", "Valid Only", "Invalid Only", "With Errors", "Mobile Only", "Landline Only", "VoIP Only", "Can Receive SMS", "Can Receive WhatsApp", "Cannot Receive Messages"]
             )
             
             filtered_results = validation_results.copy()
@@ -168,11 +182,21 @@ class UIComponents:
                 filtered_results = filtered_results[filtered_results.get('is_landline', False) == True]
             elif filter_option == "VoIP Only":
                 filtered_results = filtered_results[filtered_results.get('is_voip', False) == True]
+            elif filter_option == "Can Receive SMS":
+                filtered_results = filtered_results[filtered_results.get('can_receive_sms', False) == True]
+            elif filter_option == "Can Receive WhatsApp":
+                filtered_results = filtered_results[filtered_results.get('can_receive_whatsapp', False) == True]
+            elif filter_option == "Cannot Receive Messages":
+                filtered_results = filtered_results[
+                    (filtered_results.get('can_receive_sms', False) == False) & 
+                    (filtered_results.get('can_receive_whatsapp', False) == False)
+                ]
             
             # Display enhanced carrier information
             display_columns = [
                 'name', 'original_phone', 'formatted_phone', 'is_valid', 
-                'carrier', 'carrier_type', 'line_type', 'location', 'timezone', 'error'
+                'carrier', 'carrier_type', 'line_type', 'location', 'timezone', 
+                'can_receive_sms', 'can_receive_whatsapp', 'confidence', 'detection_method', 'error'
             ]
             
             # Only show columns that exist in the dataframe
@@ -1151,6 +1175,22 @@ class UIComponents:
                 results.append(result)
                 continue
             
+            # Check if phone number can receive WhatsApp messages
+            if not self._can_receive_messages(row['Phone'], "WhatsApp"):
+                logger.info(f"⏭️ Skipping {row['Name']} - phone number cannot receive WhatsApp (VoIP/Landline)")
+                self._record_duplicate_transaction(row, "Phone number cannot receive WhatsApp (VoIP/Landline)")
+                
+                result = {
+                    'success': False,
+                    'error': 'Phone number cannot receive WhatsApp (VoIP/Landline)',
+                    'name': row['Name'],
+                    'phone': row['Phone'],
+                    'skipped': True,
+                    'record_index': idx
+                }
+                results.append(result)
+                continue
+            
             # Generate message based on duplicate status
             # Check if person is a historical customer
             is_historical_customer = self._is_historical_customer(row['Name'], row['Phone'])
@@ -1307,6 +1347,24 @@ class UIComponents:
                 result = {
                     'success': False,
                     'error': 'Message already sent for this book previously',
+                    'name': row['Name'],
+                    'phone': row['Phone'],
+                    'skipped': True
+                }
+                results.append(result)
+                continue
+            
+            # Check if phone number can receive SMS messages
+            if not self._can_receive_messages(row['Phone'], "SMS"):
+                logger.info(f"⏭️ Skipping {row['Name']} - phone number cannot receive SMS (VoIP/Landline)")
+                skipped_count += 1
+                
+                # Record duplicate transaction for non-SMS capable numbers
+                self._record_duplicate_transaction(row, "Phone number cannot receive SMS (VoIP/Landline)")
+                
+                result = {
+                    'success': False,
+                    'error': 'Phone number cannot receive SMS (VoIP/Landline)',
                     'name': row['Name'],
                     'phone': row['Phone'],
                     'skipped': True
@@ -1639,6 +1697,62 @@ class UIComponents:
         except Exception as e:
             logger.error(f"❌ Error checking if message was already sent: {e}")
             return False
+    
+    def _can_receive_messages(self, phone, message_type="SMS"):
+        """Check if phone number can receive SMS or WhatsApp messages based on validation results"""
+        try:
+            # Check if phone validation results are available
+            if 'validation_results' in st.session_state and 'phones' in st.session_state.validation_results:
+                phone_results = st.session_state.validation_results['phones']
+                
+                # Find the phone number in validation results
+                normalized_phone = self._normalize_phone(phone)
+                
+                for _, result in phone_results.iterrows():
+                    result_phone = self._normalize_phone(result.get('original_phone', ''))
+                    if result_phone == normalized_phone:
+                        # Check if it can receive the specified message type
+                        if message_type == "SMS":
+                            can_receive = result.get('can_receive_sms', False)
+                        elif message_type == "WhatsApp":
+                            can_receive = result.get('can_receive_whatsapp', False)
+                        else:
+                            can_receive = result.get('can_receive_sms', False) or result.get('can_receive_whatsapp', False)
+                        
+                        if not can_receive:
+                            line_type = result.get('line_type', 'Unknown')
+                            carrier = result.get('carrier', 'Unknown')
+                            logger.info(f"📞 {message_type} blocked for {phone} - Line Type: {line_type}, Carrier: {carrier}")
+                        
+                        return can_receive
+                
+                # If not found in validation results, assume it can receive messages
+                logger.warning(f"📞 Phone number {phone} not found in validation results - allowing {message_type}")
+                return True
+            else:
+                # If no validation results available, assume it can receive messages
+                logger.warning(f"📞 No phone validation results available - allowing {message_type} for {phone}")
+                return True
+        except Exception as e:
+            logger.error(f"Error checking message capability for {phone}: {e}")
+            return True  # Default to allowing if there's an error
+    
+    def _normalize_phone(self, phone):
+        """Normalize phone number for comparison"""
+        try:
+            if not phone:
+                return ""
+            # Remove all non-digit characters except +
+            import re
+            normalized = re.sub(r'[^\d+]', '', str(phone))
+            # Ensure it starts with +1 for US numbers
+            if normalized.startswith('1') and not normalized.startswith('+1'):
+                normalized = '+' + normalized
+            elif not normalized.startswith('+'):
+                normalized = '+1' + normalized
+            return normalized
+        except:
+            return str(phone)
     
     def _is_historical_customer(self, name, phone):
         """Check if person is a historical customer in All_Sent_Records.xlsx"""
