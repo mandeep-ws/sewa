@@ -1,0 +1,50 @@
+# Docker Desktop GUI Configuration Template
+# Copy these settings when creating your container in Docker Desktop
+
+## Container Name
+sewa-book-automation
+
+## Image
+sewa-book-automation:latest
+
+## Port Mapping
+8501:8501
+
+## Environment Variables
+STREAMLIT_SERVER_PORT=8501
+STREAMLIT_SERVER_ADDRESS=0.0.0.0
+PYTHONUNBUFFERED=1
+TZ=America/New_York
+
+## Volume Mounts (Windows)
+C:\sewa\data:/app/data
+C:\sewa\exports:/app/exports
+C:\sewa\All_Sent_Records.xlsx:/app/All_Sent_Records.xlsx
+C:\sewa\Duplicate_Transactions.xlsx:/app/Duplicate_Transactions.xlsx
+C:\sewa\Failed_Transactions.xlsx:/app/Failed_Transactions.xlsx
+C:\sewa\config.env:/app/config.env
+C:\sewa\uploads:/app/uploads
+
+## Volume Mounts (Linux/Mac)
+./data:/app/data
+./exports:/app/exports
+./All_Sent_Records.xlsx:/app/All_Sent_Records.xlsx
+./Duplicate_Transactions.xlsx:/app/Duplicate_Transactions.xlsx
+./Failed_Transactions.xlsx:/app/Failed_Transactions.xlsx
+./config.env:/app/config.env
+./uploads:/app/uploads
+
+## Advanced Settings
+Restart policy: Unless stopped
+Memory: 4GB
+CPU: 4 cores
+
+## Health Check
+curl -f http://localhost:8501/_stcore/health || exit 1
+Interval: 30s
+Timeout: 10s
+Retries: 3
+Start period: 5s
+
+## Access URL
+http://localhost:8501

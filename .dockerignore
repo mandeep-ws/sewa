@@ -30,6 +30,7 @@ ENV/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
@@ -39,36 +40,39 @@ Thumbs.db
 .git/
 .gitignore
 
-# Docker
-Dockerfile
-docker-compose.yml
-.dockerignore
-
-# Documentation
-*.md
-README.md
-
 # Logs
 *.log
 logs/
 
+# Documentation
+*.md
+!README.md
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Scripts
+*.sh
+*.bat
+*.ps1
+
 # Temporary files
 *.tmp
-*.temp
+*.bak
+*.swp
+*.swo
 
-# Test files
-test_*.py
-*_test.py
-tests/
+# Excel files (will be mounted as volumes)
+*.xlsx
+*.xls
+*.csv
 
-# Jupyter notebooks
-*.ipynb
+# Environment files (will be mounted as volume)
+.env
+config.env
 
-# Coverage reports
-htmlcov/
-.coverage
-.coverage.*
-coverage.xml
-
-# Pytest
-.pytest_cache/
+# Exports (will be mounted as volume)
+exports/
+uploads/
