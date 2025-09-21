@@ -40,25 +40,8 @@ class TwilioPhoneValidator:
         else:
             logger.warning("⚠️ Twilio credentials not found. Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in config.env")
         
-        # VoIP carrier patterns (common VoIP providers)
-        self.voip_carriers = {
-            'google voice', 'google fi', 'ringcentral', 'vonage', 'skype', 'whatsapp',
-            'telegram', 'discord', 'zoom', 'microsoft teams', 'slack', 'twilio',
-            'bandwidth', 'flowroute', 'voip.ms', 'callcentric', 'voipfone',
-            'grasshopper', 'nextiva', '8x8', 'jive', 'mightycall', 'phone.com',
-            'magicjack', 'ooma', 'freedompop', 'republic wireless', 'ting',
-            'us cellular', 'boost mobile', 'cricket wireless', 'metro pcs',
-            'mint mobile', 'straight talk', 'ultra mobile', 'virgin mobile',
-            'xfinity mobile', 'comcast', 'cox communications', 'level 3',
-            'onvoy', 'telnyx', 'anveo', 'sprint spectrum', 't-mobile',
-            'verizon wireless', 'at&t mobility'
-        }
-        
-        # VoIP number patterns (common VoIP number ranges)
-        self.voip_patterns = [
-            r'^\+1(555|800|888|877|866|855|844|833|822|811)',  # Common VoIP prefixes
-            r'^\+1(900|976|950|940|920|910)',  # Premium rate numbers
-        ]
+        # Note: We rely entirely on Twilio Lookup API for carrier and line type detection
+        # No need for manual VoIP carrier lists or patterns since Twilio provides this data directly
     
     def validate_phones(self, df, progress_callback=None, use_multithreading=True, max_workers=5):
         """
@@ -225,14 +208,8 @@ class TwilioPhoneValidator:
                     result['line_type'] = 'Unknown'
             
             # Note: line_type_intelligence is not available in v1 API
-            # We rely on carrier type information for line type detection
-            
-            # Additional VoIP detection based on carrier name
-            if result['carrier'] and any(voip_carrier in result['carrier'].lower() for voip_carrier in self.voip_carriers):
-                result['is_voip'] = True
-                result['line_type'] = 'VoIP'
-                result['is_mobile'] = False
-                result['is_landline'] = False
+            # We rely entirely on Twilio's carrier type information for line type detection
+            # Twilio provides accurate carrier type: mobile, landline, voip, toll_free
             
             # Get location information using phonenumbers
             try:
@@ -301,12 +278,8 @@ class TwilioPhoneValidator:
             time_zones = timezone.time_zones_for_number(parsed_number)
             result['timezone'] = ', '.join(time_zones) if time_zones else 'Unknown'
             
-            # Additional VoIP detection based on carrier name
-            if result['carrier'] and any(voip_carrier in result['carrier'].lower() for voip_carrier in self.voip_carriers):
-                result['is_voip'] = True
-                result['line_type'] = 'VoIP'
-                result['is_mobile'] = False
-                result['is_landline'] = False
+            # Note: For fallback phonenumbers detection, we rely on the library's built-in type detection
+            # No additional manual VoIP detection needed since phonenumbers library handles this
             
         except Exception as e:
             result['error'] = f'Phonenumbers parse error: {str(e)}'
