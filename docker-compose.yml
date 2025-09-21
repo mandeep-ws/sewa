@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  sewa-app:
+    build: .
+    container_name: sewa-book-automation
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount data files to host machine
+      - ./data:/app/data
+      - ./exports:/app/exports
+      - ./All_Sent_Records.xlsx:/app/All_Sent_Records.xlsx
+      - ./Duplicate_Transactions.xlsx:/app/Duplicate_Transactions.xlsx
+      - ./Failed_Transactions.xlsx:/app/Failed_Transactions.xlsx
+      - ./config.env:/app/config.env
+      # Mount uploads directory for file uploads
+      - ./uploads:/app/uploads
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
