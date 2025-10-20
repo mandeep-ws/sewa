@@ -1462,15 +1462,16 @@ class UIComponents:
                 logger.info(f"⏭️ Skipping {row['Name']} - phone number cannot receive SMS (VoIP/Landline)")
                 skipped_count += 1
                 
-                # Record duplicate transaction for non-SMS capable numbers
-                self._record_duplicate_transaction(row, "Phone number cannot receive SMS (VoIP/Landline)")
+                # Record landline/VoIP transaction (separate from duplicates)
+                self._record_landline_voip_transaction(row, "Phone number cannot receive SMS (VoIP/Landline)")
                 
                 result = {
                     'success': False,
                     'error': 'Phone number cannot receive SMS (VoIP/Landline)',
                     'name': row['Name'],
                     'phone': row['Phone'],
-                    'skipped': True
+                    'skipped': True,
+                    'landline_voip': True  # Flag to indicate this is a landline/VoIP issue
                 }
                 results.append(result)
                 continue
@@ -1656,7 +1657,10 @@ class UIComponents:
                             continue
                     
                     # Determine status and error message
-                    if result.get('skipped'):
+                    if result.get('landline_voip'):
+                        status = "Landline/VoIP"
+                        error_message = result.get('error', 'Phone number cannot receive SMS (VoIP/Landline)')
+                    elif result.get('skipped'):
                         status = "Duplicate"
                         error_message = result.get('error', 'Duplicate customer - already sent message')
                     elif result.get('success'):
@@ -1708,9 +1712,10 @@ class UIComponents:
                     all_records.append(new_record)
                     logger.info(f"📝 Created comprehensive record for {name} - Status: {status}")
             
-            # Also add records from duplicate and failed transaction files
+            # Also add records from duplicate, failed, and landline/VoIP transaction files
             all_records.extend(self._load_duplicate_records_for_master(current_time, message_type))
             all_records.extend(self._load_failed_records_for_master(current_time, message_type))
+            all_records.extend(self._load_landline_voip_records_for_master(current_time, message_type))
             
             if all_records:
                 # Create DataFrame from all records
@@ -1844,6 +1849,59 @@ class UIComponents:
             logger.error(f"❌ Error loading failed records for master file: {e}")
             return []
     
+    def _load_landline_voip_records_for_master(self, current_time, message_type):
+        """Load landline/VoIP records from Landline_VoIP_Transactions.xlsx and format for master file"""
+        try:
+            import pandas as pd
+            import os
+            
+            landline_voip_file = "Landline_VoIP_Transactions.xlsx"
+            if not os.path.exists(landline_voip_file):
+                return []
+            
+            # Read landline/VoIP transactions
+            landline_voip_df = pd.read_excel(landline_voip_file)
+            
+            # Filter for current campaign (same date)
+            current_date = current_time.split(' ')[0]
+            landline_voip_df = landline_voip_df[landline_voip_df['Campaign_Date'] == current_date]
+            
+            # Convert to master file format
+            master_records = []
+            for _, row in landline_voip_df.iterrows():
+                master_record = {
+                    'Name': row.get('Name', ''),
+                    'Phone': row.get('Phone', ''),
+                    'Address': row.get('Address', ''),
+                    'Book': row.get('Book', ''),
+                    'Language': row.get('Language', ''),
+                    'Message_Type': message_type,
+                    'Sent_Date': current_time,
+                    'Status': 'Landline/VoIP',
+                    'Message_ID': '',
+                    'Error_Message': row.get('Error_Message', 'Phone number cannot receive SMS'),
+                    'Email': row.get('Email', ''),
+                    'City': row.get('City', ''),
+                    'State': row.get('State', ''),
+                    'Zip_Code': row.get('Zip_Code', ''),
+                    'Country': row.get('Country', ''),
+                    'Phone_Valid': '',
+                    'Address_Valid': '',
+                    'Carrier_Info': '',
+                    'Is_Duplicate': False,
+                    'Duplicate_Reason': '',
+                    'Campaign_Date': current_date,
+                    'Campaign_Type': f"{message_type}_Campaign"
+                }
+                master_records.append(master_record)
+            
+            logger.info(f"📝 Loaded {len(master_records)} landline/VoIP records for master file")
+            return master_records
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading landline/VoIP records for master file: {e}")
+            return []
+    
     def _load_previously_sent_records(self):
         """Load previously sent records from All_Sent_Records.xlsx"""
         try:
@@ -1906,7 +1964,7 @@ class UIComponents:
                             logger.info(f"🔍 All_Sent_Records: Found match by name+phone+book: {record.get('Name')} - {record.get('Phone')} - Book: {record_book} - Status: {previous_status} - Sent: {record.get('Sent_Date')} - Type: {record.get('Message_Type', 'N/A')}")
                             
                             # Block if previous status was "Success" or "Duplicate"
-                            # Only allow retry for "Failed" status
+                            # Allow retry for "Failed" and "Landline/VoIP" status
                             if previous_status == "Success":
                                 logger.info(f"🚫 BLOCKING: Previous message was successful - {record.get('Name')} ({record.get('Phone')})")
                                 return True
@@ -2112,6 +2170,52 @@ class UIComponents:
             
         except Exception as e:
             logger.error(f"❌ Error recording failed transaction: {e}")
+    
+    def _record_landline_voip_transaction(self, row, error_message):
+        """Record landline/VoIP transactions in a separate file"""
+        try:
+            import pandas as pd
+            from datetime import datetime
+            import os
+            
+            # Prepare landline/VoIP record
+            landline_voip_record = {
+                'Name': row.get('Name', ''),
+                'Phone': row.get('Phone', ''),
+                'Address': row.get('Address', ''),
+                'Book': row.get('Book', ''),
+                'Language': row.get('Language', ''),
+                'Email': row.get('Email', ''),
+                'City': row.get('City', ''),
+                'State': row.get('State', ''),
+                'Zip_Code': row.get('Zip_Code', ''),
+                'Country': row.get('Country', ''),
+                'Error_Message': error_message,
+                'Attempt_Date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'Campaign_Date': datetime.now().strftime('%Y-%m-%d'),
+                'Status': 'Landline/VoIP',
+                'Phone_Type': 'Landline/VoIP'
+            }
+            
+            # File to store landline/VoIP transactions
+            landline_voip_file = "Landline_VoIP_Transactions.xlsx"
+            
+            # Create DataFrame from landline/VoIP record
+            new_df = pd.DataFrame([landline_voip_record])
+            
+            if os.path.exists(landline_voip_file):
+                # Append to existing file
+                existing_df = pd.read_excel(landline_voip_file)
+                combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+                combined_df.to_excel(landline_voip_file, index=False)
+                logger.info(f"📝 Recorded landline/VoIP transaction in: {landline_voip_file}")
+            else:
+                # Create new landline/VoIP file
+                new_df.to_excel(landline_voip_file, index=False)
+                logger.info(f"📝 Created new landline/VoIP transactions file: {landline_voip_file}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error recording landline/VoIP transaction: {e}")
     
     def _export_validation_results_to_excel(self, data, validation_type, filename_prefix):
         """Export validation results to Excel file with timestamp in appropriate directory"""

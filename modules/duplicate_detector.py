@@ -46,7 +46,7 @@ class DuplicateDetector:
                 hist_status = str(hist_row.get('Status', '')).strip()
                 
                 # Only consider records with "Success" or "Duplicate" status as duplicates
-                # Allow retry only for "Failed" status records
+                # Allow retry for "Failed" and "Landline/VoIP" status records
                 if hist_status not in ["Success", "Duplicate"]:
                     continue
                 
