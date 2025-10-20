@@ -1617,13 +1617,13 @@ class UIComponents:
         st.success(f"🎉 {message_type} sending completed!")
     
     def _create_new_records_file(self, results, message_type):
-        """Create a new Excel file with all new records and sending results"""
+        """Create a new Excel file with all records (successful, failed, and duplicate) and sending results"""
         try:
             import pandas as pd
             from datetime import datetime
             import os
             
-            logger.info(f"📝 Creating new records file with {message_type} sending results...")
+            logger.info(f"📝 Creating comprehensive records file with {message_type} sending results...")
             
             # Get SMS data from session state
             if hasattr(st.session_state, 'sms_data') and st.session_state.sms_data is not None:
@@ -1633,16 +1633,12 @@ class UIComponents:
                 logger.warning("⚠️ No SMS data found in session state")
                 return
             
-            # Create new records DataFrame
-            new_records = []
+            # Create comprehensive records DataFrame
+            all_records = []
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
+            # Process all results (successful, failed, and skipped)
             for result in results:
-                # Only record successful messages, skip failed and skipped messages
-                if not result.get('success') or result.get('skipped'):
-                    logger.info(f"⏭️ Skipping record for {result.get('name', 'Unknown')} - Status: {'Skipped' if result.get('skipped') else 'Failed'}")
-                    continue
-                    
                 name = result.get('name', '')
                 phone = result.get('phone', '')
                 
@@ -1659,7 +1655,18 @@ class UIComponents:
                         else:
                             continue
                     
-                    # Create new record with all necessary fields
+                    # Determine status and error message
+                    if result.get('skipped'):
+                        status = "Duplicate"
+                        error_message = result.get('error', 'Duplicate customer - already sent message')
+                    elif result.get('success'):
+                        status = "Success"
+                        error_message = ''
+                    else:
+                        status = "Failed"
+                        error_message = result.get('error', 'Unknown error')
+                    
+                    # Create comprehensive record with all necessary fields
                     new_record = {
                         # Core identification fields
                         'Name': sms_record.get('Name', ''),
@@ -1673,9 +1680,9 @@ class UIComponents:
                         # Message sending details
                         'Message_Type': message_type,
                         'Sent_Date': current_time,
-                        'Status': "Success",
+                        'Status': status,
                         'Message_ID': result.get('message_sid', ''),
-                        'Error_Message': '',  # No error message for successful messages
+                        'Error_Message': error_message,
                         
                         # Additional fields from SMS data
                         'Email': sms_record.get('Email', ''),
@@ -1698,12 +1705,16 @@ class UIComponents:
                         'Campaign_Type': f"{message_type}_Campaign"
                     }
                     
-                    new_records.append(new_record)
-                    logger.info(f"📝 Created new record for {name} - Status: Success")
+                    all_records.append(new_record)
+                    logger.info(f"📝 Created comprehensive record for {name} - Status: {status}")
             
-            if new_records:
-                # Create DataFrame from new records
-                new_df = pd.DataFrame(new_records)
+            # Also add records from duplicate and failed transaction files
+            all_records.extend(self._load_duplicate_records_for_master(current_time, message_type))
+            all_records.extend(self._load_failed_records_for_master(current_time, message_type))
+            
+            if all_records:
+                # Create DataFrame from all records
+                new_df = pd.DataFrame(all_records)
                 
                 # Single file to keep all sent records
                 master_file = "All_Sent_Records.xlsx"
@@ -1713,19 +1724,125 @@ class UIComponents:
                     existing_df = pd.read_excel(master_file)
                     combined_df = pd.concat([existing_df, new_df], ignore_index=True)
                     combined_df.to_excel(master_file, index=False)
-                    logger.info(f"📝 Appended {len(new_records)} successful records to: {master_file}")
-                    logger.info(f"📊 Total successful records in file: {len(combined_df)}")
+                    logger.info(f"📝 Appended {len(all_records)} comprehensive records to: {master_file}")
+                    logger.info(f"📊 Total records in file: {len(combined_df)}")
                 else:
                     # Create new master file
                     new_df.to_excel(master_file, index=False)
-                    logger.info(f"📝 Created new master file: {master_file}")
-                    logger.info(f"📊 Saved {len(new_records)} successful records")
+                    logger.info(f"📝 Created new comprehensive master file: {master_file}")
+                    logger.info(f"📊 Saved {len(all_records)} comprehensive records")
             else:
-                logger.warning("⚠️ No successful records to save (all messages failed or were skipped)")
+                logger.warning("⚠️ No records to save")
             
         except Exception as e:
-            logger.error(f"❌ Error creating new records file: {e}")
+            logger.error(f"❌ Error creating comprehensive records file: {e}")
             # Don't raise the error, just log it so it doesn't break the main flow
+    
+    def _load_duplicate_records_for_master(self, current_time, message_type):
+        """Load duplicate records from Duplicate_Transactions.xlsx and format for master file"""
+        try:
+            import pandas as pd
+            import os
+            
+            duplicate_file = "Duplicate_Transactions.xlsx"
+            if not os.path.exists(duplicate_file):
+                return []
+            
+            # Read duplicate transactions
+            duplicate_df = pd.read_excel(duplicate_file)
+            
+            # Filter for current campaign (same date)
+            current_date = current_time.split(' ')[0]
+            duplicate_df = duplicate_df[duplicate_df['Campaign_Date'] == current_date]
+            
+            # Convert to master file format
+            master_records = []
+            for _, row in duplicate_df.iterrows():
+                master_record = {
+                    'Name': row.get('Name', ''),
+                    'Phone': row.get('Phone', ''),
+                    'Address': row.get('Address', ''),
+                    'Book': row.get('Book', ''),
+                    'Language': row.get('Language', ''),
+                    'Message_Type': message_type,
+                    'Sent_Date': current_time,
+                    'Status': 'Duplicate',
+                    'Message_ID': '',
+                    'Error_Message': row.get('Duplicate_Reason', 'Duplicate customer'),
+                    'Email': row.get('Email', ''),
+                    'City': row.get('City', ''),
+                    'State': row.get('State', ''),
+                    'Zip_Code': row.get('Zip_Code', ''),
+                    'Country': row.get('Country', ''),
+                    'Phone_Valid': '',
+                    'Address_Valid': '',
+                    'Carrier_Info': '',
+                    'Is_Duplicate': True,
+                    'Duplicate_Reason': row.get('Duplicate_Reason', ''),
+                    'Campaign_Date': current_date,
+                    'Campaign_Type': f"{message_type}_Campaign"
+                }
+                master_records.append(master_record)
+            
+            logger.info(f"📝 Loaded {len(master_records)} duplicate records for master file")
+            return master_records
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading duplicate records for master file: {e}")
+            return []
+    
+    def _load_failed_records_for_master(self, current_time, message_type):
+        """Load failed records from Failed_Transactions.xlsx and format for master file"""
+        try:
+            import pandas as pd
+            import os
+            
+            failed_file = "Failed_Transactions.xlsx"
+            if not os.path.exists(failed_file):
+                return []
+            
+            # Read failed transactions
+            failed_df = pd.read_excel(failed_file)
+            
+            # Filter for current campaign (same date)
+            current_date = current_time.split(' ')[0]
+            failed_df = failed_df[failed_df['Campaign_Date'] == current_date]
+            
+            # Convert to master file format
+            master_records = []
+            for _, row in failed_df.iterrows():
+                master_record = {
+                    'Name': row.get('Name', ''),
+                    'Phone': row.get('Phone', ''),
+                    'Address': row.get('Address', ''),
+                    'Book': row.get('Book', ''),
+                    'Language': row.get('Language', ''),
+                    'Message_Type': message_type,
+                    'Sent_Date': current_time,
+                    'Status': 'Failed',
+                    'Message_ID': '',
+                    'Error_Message': row.get('Error_Message', 'Unknown error'),
+                    'Email': row.get('Email', ''),
+                    'City': row.get('City', ''),
+                    'State': row.get('State', ''),
+                    'Zip_Code': row.get('Zip_Code', ''),
+                    'Country': row.get('Country', ''),
+                    'Phone_Valid': '',
+                    'Address_Valid': '',
+                    'Carrier_Info': '',
+                    'Is_Duplicate': False,
+                    'Duplicate_Reason': '',
+                    'Campaign_Date': current_date,
+                    'Campaign_Type': f"{message_type}_Campaign"
+                }
+                master_records.append(master_record)
+            
+            logger.info(f"📝 Loaded {len(master_records)} failed records for master file")
+            return master_records
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading failed records for master file: {e}")
+            return []
     
     def _load_previously_sent_records(self):
         """Load previously sent records from All_Sent_Records.xlsx"""
@@ -1778,13 +1895,27 @@ class UIComponents:
                             record_phone_normalized = record_phone
                         
                         # Check by NAME + normalized phone + book (prevent same person getting same book multiple times)
+                        # BUT only block if the previous status was "Success" - allow retry for "Failed" status
                         if (record_name == current_name and 
                             record_phone_normalized == current_phone_normalized and 
                             record_phone_normalized != '' and 
                             current_book == record_book and 
                             current_book != ''):
-                            logger.info(f"🔍 All_Sent_Records: Found duplicate by name+phone+book: {record.get('Name')} - {record.get('Phone')} - Book: {record_book} - Sent: {record.get('Sent_Date')} - Type: {record.get('Message_Type', 'N/A')}")
-                            return True
+                            
+                            previous_status = str(record.get('Status', '')).strip()
+                            logger.info(f"🔍 All_Sent_Records: Found match by name+phone+book: {record.get('Name')} - {record.get('Phone')} - Book: {record_book} - Status: {previous_status} - Sent: {record.get('Sent_Date')} - Type: {record.get('Message_Type', 'N/A')}")
+                            
+                            # Block if previous status was "Success" or "Duplicate"
+                            # Only allow retry for "Failed" status
+                            if previous_status == "Success":
+                                logger.info(f"🚫 BLOCKING: Previous message was successful - {record.get('Name')} ({record.get('Phone')})")
+                                return True
+                            elif previous_status == "Duplicate":
+                                logger.info(f"🚫 BLOCKING: Previous message was marked as duplicate - {record.get('Name')} ({record.get('Phone')})")
+                                return True
+                            else:
+                                logger.info(f"✅ ALLOWING RETRY: Previous status was '{previous_status}' - {record.get('Name')} ({record.get('Phone')})")
+                                continue
                         
                         # If same person but different book, allow sending (not a duplicate)
                         if (record_name == current_name and 

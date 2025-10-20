@@ -43,6 +43,12 @@ class DuplicateDetector:
                 hist_phone = self._clean_phone(hist_row.get('Phone', ''))
                 hist_address = self._clean_address(hist_row.get('Address', ''))
                 hist_name = str(hist_row.get('Name', '')).strip().lower()
+                hist_status = str(hist_row.get('Status', '')).strip()
+                
+                # Only consider records with "Success" or "Duplicate" status as duplicates
+                # Allow retry only for "Failed" status records
+                if hist_status not in ["Success", "Duplicate"]:
+                    continue
                 
                 # Check phone match (must match both phone AND name for phone-based duplicates)
                 if sms_phone and hist_phone and sms_phone == hist_phone and sms_name and hist_name and sms_name == hist_name:
